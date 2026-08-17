@@ -2,31 +2,14 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# Configuração da página
+# Configuração inicial da página
 st.set_page_config(
     page_title="actuar.group - Troubleshooting",
     page_icon="🛠️",
     layout="wide"
 )
 
-# Estilização CSS para visual Dark
-st.markdown("""
-<style>
-    div.stButton > button {
-        border-radius: 8px;
-        background-color: #1E293B;
-        color: #F8FAFC;
-        border: 1px solid #334155;
-    }
-    div.stButton > button:hover {
-        background-color: #334155;
-        border-color: #6366F1;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Inicialização do Cliente Supabase
-@st.cache_resource
+# Conexão com Supabase sem cache para forçar a leitura dos novos Secrets
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
@@ -34,7 +17,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Funções de Leitura e Escrita
+# Funções CRUD
 def buscar_ocorrencias():
     resposta = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(resposta.data)
@@ -48,7 +31,7 @@ def salvar_ocorrencia(equipamento, problema, motivo, solucao):
     }
     supabase.table("ocorrencias").insert(dados).execute()
 
-# Topo
+# Cabeçalho da Interface
 col_logo, col_space, col_user = st.columns([3, 5, 2])
 with col_logo:
     st.title("actuar.group")
@@ -60,9 +43,8 @@ st.markdown("---")
 st.subheader("🔍 Base de Erros e Soluções (Catracas & Periféricos)")
 st.caption("Consulte ou cadastre diagnósticos técnicos e tratativas recomendadas.")
 
-# --- SEÇÃO DE CADASTRO DE OCORRÊNCIAS ---
+# Form de Cadastro
 with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
-    st.markdown("##### Preencha os campos abaixo para adicionar à base:")
     with st.form("form_novo_problema", clear_on_submit=True):
         f_col1, f_col2 = st.columns([1, 2])
         
@@ -80,51 +62,51 @@ with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
             if prob_input and motivo_input and solucao_input:
                 try:
                     salvar_ocorrencia(eq_input, prob_input, motivo_input, solucao_input)
-                    st.success("Ocorrência cadastrada com sucesso no banco de dados!")
+                    st.success("Ocorrência registrada no Supabase!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro ao salvar no Supabase: {e}")
+                    st.error(f"Erro ao salvar: {e}")
             else:
-                st.error("Por favor, preencha todos os campos antes de salvar.")
+                st.error("Preencha todos os campos antes de salvar.")
 
 st.markdown("---")
 
-# --- CARREGAR DADOS DO SUPABASE ---
+# Carregar Dados
 try:
     df_ocorrencias = buscar_ocorrencias()
 except Exception as e:
     st.error(f"Erro ao conectar com o Supabase: {e}")
     df_ocorrencias = pd.DataFrame(columns=["equipamento", "problema", "motivo", "solucao"])
 
-# --- FILTROS DE CONSULTA ---
+# Filtros
 col_f1, col_f2 = st.columns([1, 2])
 with col_f1:
-    opcoes_eq = ["Todos"] + list(df_ocorrencias["equipamento"].unique()) if not df_ocorrencias.empty else ["Todos"]
+    opcoes_eq = ["Todos"] + list(df_ocorrencias["equipamento"].unique()) if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns else ["Todos"]
     filtro_eq = st.selectbox("Filtrar por Equipamento:", opcoes_eq)
 with col_f2:
     busca_txt = st.text_input("Buscar problema ou palavra-chave:", "")
 
-# Filtragem dos dados
+# Filtragem de busca
 df_exibicao = df_ocorrencias.copy()
 
-if not df_exibicao.empty:
+if not df_exibicao.empty and "equipamento" in df_exibicao.columns:
     if filtro_eq != "Todos":
         df_exibicao = df_exibicao[df_exibicao["equipamento"] == filtro_eq]
 
     if busca_txt:
         df_exibicao = df_exibicao[
-            df_exibicao["problema"].str.contains(busca_txt, case=False, na=False) |
-            df_exibicao["motivo"].str.contains(busca_txt, case=False, na=False) |
-            df_exibicao["solucao"].str.contains(busca_txt, case=False, na=False)
+            df_exibicao["problema"].astype(str).str.contains(busca_txt, case=False, na=False) |
+            df_exibicao["motivo"].astype(str).str.contains(busca_txt, case=False, na=False) |
+            df_exibicao["solucao"].astype(str).str.contains(busca_txt, case=False, na=False)
         ]
 
-# --- MAPEAMENTO DE OCORRÊNCIAS ---
+# Exibição dos itens em accordion/expander
 st.markdown("### 📋 Mapeamento de Ocorrências")
 
 if df_exibicao.empty:
     st.info("Nenhuma ocorrência registrada ainda. Utilize o formulário acima para cadastrar a primeira solução.")
 else:
     for idx, row in df_exibicao.iterrows():
-        with st.expander(f"🔴 [{row['equipamento']}] {row['problema']}"):
-            st.markdown(f"**Motivo (Causa Raiz):** {row['motivo']}")
-            st.success(f"**Solução:** {row['solucao']}")
+        with st.expander(f"🔴 [{row.get('equipamento', 'N/A')}] {row.get('problema', 'Sem descrição')}"):
+            st.markdown(f"**Motivo (Causa Raiz):** {row.get('motivo', '-')}")
+            st.success(f"**Solução:** {row.get('solucao', '-')}")
