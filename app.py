@@ -9,7 +9,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Conexão com Supabase sem cache para forçar a leitura dos novos Secrets
+# Conexão com Supabase sem cache para garantir leitura dos Secrets
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
@@ -40,8 +40,31 @@ with col_user:
 
 st.markdown("---")
 
-st.subheader("🔍 Base de Erros e Soluções (Catracas & Periféricos)")
+st.subheader("🔍 Base de Erros e Soluções (Catracas, Periféricos & Sistemas)")
 st.caption("Consulte ou cadastre diagnósticos técnicos e tratativas recomendadas.")
+
+# Lista de Equipamentos e Sistemas fornecida
+LISTA_EQUIPAMENTOS = [
+    # Catracas e Hardware
+    "Catraca litnet1",
+    "Catraca litnet2",
+    "Catraca litnet3",
+    "Catraca Edge",
+    "Catraca Topdata",
+    "Catraca Henry",
+    "Catraca Tecnibra",
+    "Catraca serial",
+    "Catraca control ID block",
+    "Catraca control ID block Next",
+    "Control ID",
+    "Control ID Max",
+    "Webcam",
+    "Facial EVO/Topdata",
+    # Sistemas / Acesso
+    "Legado(Acesso)",
+    "The new(Edge)",
+    "Outro"
+]
 
 # Form de Cadastro
 with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
@@ -49,12 +72,12 @@ with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
         f_col1, f_col2 = st.columns([1, 2])
         
         with f_col1:
-            eq_input = st.selectbox("Equipamento:", ["Catraca", "Control iD", "Face Webcam", "Outro"])
+            eq_input = st.selectbox("Equipamento / Sistema:", LISTA_EQUIPAMENTOS)
         with f_col2:
-            prob_input = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca reiniciando ao acionar solenoide")
+            prob_input = st.text_input("Problema (Sintoma):", placeholder="Ex: Erro de comunicação com o banco de dados do Acesso")
             
-        motivo_input = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Fonte de alimentação subdimensionada")
-        solucao_input = st.text_area("Solução:", placeholder="Ex: Substituir fonte por uma de 12.8V / 3A")
+        motivo_input = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Porta de conexão bloqueada ou serviço do sistema parado")
+        solucao_input = st.text_area("Solução:", placeholder="Ex: Reiniciar o serviço de comunicação e liberar a porta no firewall")
         
         submit_btn = st.form_submit_button("💾 Salvar no Supabase")
         
@@ -62,7 +85,7 @@ with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
             if prob_input and motivo_input and solucao_input:
                 try:
                     salvar_ocorrencia(eq_input, prob_input, motivo_input, solucao_input)
-                    st.success("Ocorrência registrada no Supabase!")
+                    st.success("Ocorrência registrada no Supabase com sucesso!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
@@ -81,8 +104,12 @@ except Exception as e:
 # Filtros
 col_f1, col_f2 = st.columns([1, 2])
 with col_f1:
-    opcoes_eq = ["Todos"] + list(df_ocorrencias["equipamento"].unique()) if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns else ["Todos"]
-    filtro_eq = st.selectbox("Filtrar por Equipamento:", opcoes_eq)
+    if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns:
+        opcoes_eq = ["Todos"] + sorted(list(df_ocorrencias["equipamento"].unique()))
+    else:
+        opcoes_eq = ["Todos"]
+    filtro_eq = st.selectbox("Filtrar por Equipamento / Sistema:", opcoes_eq)
+
 with col_f2:
     busca_txt = st.text_input("Buscar problema ou palavra-chave:", "")
 
