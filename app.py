@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+import os
 
 # Configuração inicial da página
 st.set_page_config(
@@ -39,6 +40,11 @@ def fazer_logout():
 if st.session_state.user is None:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        if os.path.exists("logo_dark.png"):
+            st.image("logo_dark.png", width=90)
+        elif os.path.exists("logo.png"):
+            st.image("logo.png", width=90)
+            
         st.title("actuar.group")
         st.subheader("🔐 Acesso ao Sistema")
         
@@ -74,6 +80,11 @@ def salvar_ocorrencia(sistema, equipamento, problema, motivo, solucao):
 # Cabeçalho da Interface
 col_logo, col_space, col_user = st.columns([3, 4, 3])
 with col_logo:
+    if os.path.exists("logo_dark.png"):
+        st.image("logo_dark.png", width=70)
+    elif os.path.exists("logo.png"):
+        st.image("logo.png", width=70)
+        
     st.title("actuar.group")
 with col_user:
     st.write(f"👤 **{st.session_state.user.email}**")
@@ -112,7 +123,7 @@ LISTA_HARDWARE = [
     "Outro Hardware"
 ]
 
-# Form de Cadastro Unificado (Sistema + Hardware)
+# Form de Cadastro Unificado
 with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
     with st.form("form_novo_problema", clear_on_submit=True):
         col_sist, col_hw = st.columns(2)
@@ -148,7 +159,6 @@ except Exception as e:
     st.error(f"Erro ao conectar com o Supabase: {e}")
     df_ocorrencias = pd.DataFrame(columns=["sistema", "equipamento", "problema", "motivo", "solucao"])
 
-# Certificar que a coluna sistema existe no dataframe carregado
 if "sistema" not in df_ocorrencias.columns:
     df_ocorrencias["sistema"] = "N/A"
 
