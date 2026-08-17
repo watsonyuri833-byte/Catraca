@@ -13,13 +13,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS para UI/UX de nível SaaS
+# Estilização visual no padrão SaaS
 st.markdown("""
 <style>
-    /* Estilização Geral e Cores da Marcas */
-    .stApp {
-        background-color: #0e1117;
-    }
+    .stApp { background-color: #0e1117; }
     .stButton>button {
         border-radius: 8px;
         border: 1px solid #30363d;
@@ -31,23 +28,16 @@ st.markdown("""
         border-color: #58a6ff;
         color: #58a6ff;
     }
-    
-    /* Customization dos Expander Cards */
     .streamlit-expanderHeader {
         background-color: #161b22;
         border-radius: 8px;
         border: 1px solid #30363d;
     }
-    
-    /* Badges de Status e Complexidade */
-    .badge-n1 { background-color: #238636; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
-    .badge-n2 { background-color: #d29922; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
-    .badge-n3 { background-color: #da3633; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CACHE E BANCO DE DADOS (DATABASE SERVICES)
+# 2. CONEXÃO E BANCO DE DADOS (DATABASE SERVICES)
 # ==========================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -62,13 +52,42 @@ def buscar_ocorrencias_cached():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(res.data)
 
-def salvar_ocorrencia_db(dados):
+def registrar_log(usuario_email, acao, detalhes):
+    try:
+        supabase.table("audit_logs").insert({
+            "usuario_email": usuario_email,
+            "acao": acao,
+            "detalhes": detalhes
+        }).execute()
+    except Exception as e:
+        print(f"Erro ao registrar log: {e}")
+
+def salvar_ocorrencia_db(dados, usuario_email):
     supabase.table("ocorrencias").insert(dados).execute()
+    registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
     st.cache_data.clear()
 
-def deletar_ocorrencia_db(ocorrencia_id):
+def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
+    registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
     supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
     st.cache_data.clear()
+
+def computar_voto(ocorrencia_id, tipo_voto, valor_atual):
+    coluna = "votos_pos" if tipo_voto == "pos" else "votos_neg"
+    novo_valor = int(valor_atual) + 1
+    supabase.table("ocorrencias").update({coluna: novo_valor}).eq("id", ocorrencia_id).execute()
+    st.cache_data.clear()
+
+def buscar_comentarios(ocorrencia_id):
+    res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
+    return res.data
+
+def salvar_comentario(ocorrencia_id, usuario, texto):
+    supabase.table("comentarios").insert({
+        "ocorrencia_id": ocorrencia_id,
+        "usuario": usuario,
+        "comentario": texto
+    }).execute()
 
 def upload_anexo(file):
     try:
@@ -80,22 +99,30 @@ def upload_anexo(file):
         st.error(f"Erro no upload da imagem: {e}")
         return None
 
+# Definindo Gestores (Admin)
+EMAILS_GESTORES = ["watson@actuar.group"]
+
 def obter_perfil_usuario(user_id, email):
     res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
     if res.data:
         return res.data[0]["role"]
-    # Perfil padrão inicial
-    role_padrao = "Admin" if "admin" in email.lower() else "Analista"
-    supabase.table("perfis").insert({"user_id": user_id, "email": email, "role": role_padrao}).execute()
-    return role_padrao
+    
+    role_atribuida = "Admin" if email.lower() in [e.lower() for e in EMAILS_GESTORES] else "Analista"
+    supabase.table("perfis").insert({
+        "user_id": user_id, 
+        "email": email, 
+        "role": role_atribuida
+    }).execute()
+    
+    return role_atribuida
 
 # ==========================================
-# 3. AUTENTICAÇÃO E SESSÃO
+# 3. CONTROLE DE SESSÃO E LOGIN
 # ==========================================
 if "user" not in st.session_state:
     st.session_state.user = None
 if "user_role" not in st.session_state:
-    st.session_state.user_role = "Tecnico"
+    st.session_state.user_role = "Analista"
 
 def fazer_login(email, password):
     try:
@@ -110,7 +137,7 @@ def fazer_login(email, password):
 def fazer_logout():
     supabase.auth.sign_out()
     st.session_state.user = None
-    st.session_state.user_role = "Tecnico"
+    st.session_state.user_role = "Analista"
     st.cache_data.clear()
     st.rerun()
 
@@ -124,7 +151,7 @@ if st.session_state.user is None:
             st.image("logo.png", width=90)
             
         st.title("actuar.group")
-        st.subheader("🔐 Acesso à Central Técnica")
+        st.subheader("🔐 Central Técnica de Suporte")
         
         with st.form("login_form"):
             email_input = st.text_input("E-mail:")
@@ -137,7 +164,7 @@ if st.session_state.user is None:
     st.stop()
 
 # ==========================================
-# 4. LISTAS E HEADER DA APLICAÇÃO
+# 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
 LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema"]
 LISTA_HARDWARE = [
@@ -163,31 +190,28 @@ with col_user:
 
 st.markdown("---")
 
-# Carregar DataFrame Cached
+# Buscar ocorrências
 try:
     df_ocorrencias = buscar_ocorrencias_cached()
-except Exception as e:
+except Exception:
     df_ocorrencias = pd.DataFrame()
 
-# Garantir Colunas
+# Garantir existência de colunas
 for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# ==========================================
-# 5. ESTRUTURA DE ABAS (SEM EXPORTAÇÃO)
-# ==========================================
-tab_consulta, tab_cadastro, tab_dash, tab_ai = st.tabs([
-    "📋 Diagnósticos & Evidências", 
-    "➕ Cadastrar Tratativa", 
-    "📊 Dashboard Executivo", 
-    "🤖 Assistente IA"
-])
+# Criação de abas (Aba extra apenas para Gestor)
+abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo", "🤖 Assistente IA"]
+if st.session_state.user_role == "Admin":
+    abas_navegacao.append("📜 Audit Log (Gestão)")
 
-# ------------------------------------------
-# ABA 1: DIAGNÓSTICOS, AVALIAÇÕES E DELETAR (RBAC)
-# ------------------------------------------
-with tab_consulta:
+tabs = st.tabs(abas_navegacao)
+
+# ==========================================
+# ABA 1: CONSULTA + AVALIAÇÃO + COMENTÁRIOS
+# ==========================================
+with tabs[0]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
     col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
     
@@ -198,7 +222,7 @@ with tab_consulta:
         hw_opt = ["Todos"] + sorted(list(df_ocorrencias["equipamento"].dropna().unique())) if not df_ocorrencias.empty else ["Todos"]
         f_hw = st.selectbox("Filtrar por Hardware:", hw_opt)
     with col_f3:
-        f_busca = st.text_input("Buscar termo ou sintoma:", "")
+        f_busca = st.text_input("Buscar termo ou palavra-chave:", "")
 
     df_filtered = df_ocorrencias.copy()
     if not df_filtered.empty:
@@ -214,7 +238,7 @@ with tab_consulta:
             ]
 
     if df_filtered.empty:
-        st.info("Nenhuma ocorrência encontrada.")
+        st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
     else:
         for _, row in df_filtered.iterrows():
             ocor_id = row['id']
@@ -223,85 +247,114 @@ with tab_consulta:
             prob = row.get('problema', 'Sem descrição')
             status = row.get('status', '🟢 Solução Definitiva')
             nivel = row.get('nivel', 'N1')
+            tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
             with st.expander(f"[{status}] {sist} + {hw} — {prob}"):
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**⏱️ Nível:** `{nivel}`")
+                c3.markdown(f"**⏱️ Complexidade/Tempo:** {nivel} ({tempo})")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
                 if anexo:
-                    st.markdown(f"📷 **Evidência / Imagem Anexada:**")
-                    st.image(anexo, width=350)
+                    st.markdown("📷 **Evidência Anexada:**")
+                    st.image(anexo, width=320)
 
-                # Controle RBAC: Somente Admin pode deletar registros
-                if st.session_state.user_role == "Admin":
-                    st.markdown("---")
-                    if st.button(f"🗑️ Excluir Ocorrência #{ocor_id}", key=f"del_{ocor_id}"):
-                        deletar_ocorrencia_db(ocor_id)
-                        st.toast(f"Ocorrência #{ocor_id} removida!", icon="🗑️")
+                # Avaliações (Votos)
+                st.markdown("---")
+                v_pos = row.get('votos_pos', 0) or 0
+                v_neg = row.get('votos_neg', 0) or 0
+                col_v1, col_v2, col_space = st.columns([1, 1, 4])
+                
+                with col_v1:
+                    if st.button(f"👍 Funcionou ({v_pos})", key=f"pos_{ocor_id}"):
+                        computar_voto(ocor_id, "pos", v_pos)
+                        st.rerun()
+                with col_v2:
+                    if st.button(f"👎 Não funcionou ({v_neg})", key=f"neg_{ocor_id}"):
+                        computar_voto(ocor_id, "neg", v_neg)
                         st.rerun()
 
-# ------------------------------------------
-# ABA 2: CADASTRO COM ANEXOS (IMAGENS/LOGS)
-# ------------------------------------------
-with tab_cadastro:
-    st.subheader("➕ Novo Mapeamento Técnico")
-    
-    if st.session_state.user_role in ["Admin", "Analista"]:
-        with st.form("form_novo_avancado", clear_on_submit=True):
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
-                in_status = st.selectbox("📌 Status:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
-                in_nivel = st.selectbox("📊 Complexidade:", ["N1 - Fácil", "N2 - Intermediário", "N3 - Avançado"])
-            with col_c2:
-                in_hw = st.selectbox("⚙️ Hardware / Equipamento:", LISTA_HARDWARE)
-                in_tempo = st.selectbox("⏱️ Tempo de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas"])
-                in_anexo = st.file_uploader("📷 Anexar Foto do Erro ou Log (Opcional):", type=["png", "jpg", "jpeg"])
+                # Comentários
+                st.markdown("**💬 Observações dos Analistas:**")
+                comentarios = buscar_comentarios(ocor_id)
+                for c in comentarios:
+                    st.caption(f"**{c['usuario']}**: {c['comentario']}")
                 
-            in_prob = st.text_input("Problema (Sintoma):")
-            in_motivo = st.text_area("Motivo (Causa Raiz):")
-            in_solucao = st.text_area("Solução Passo a Passo:")
-            
-            if st.form_submit_button("💾 Salvar Tratativa"):
-                if in_prob and in_motivo and in_solucao:
-                    anexo_url = upload_anexo(in_anexo) if in_anexo else None
-                    dados = {
-                        "sistema": in_sist,
-                        "equipamento": in_hw,
-                        "problema": in_prob,
-                        "motivo": in_motivo,
-                        "solucao": in_solucao,
-                        "status": in_status,
-                        "nivel": in_nivel,
-                        "tempo_estimado": in_tempo,
-                        "anexo_url": anexo_url
-                    }
-                    salvar_ocorrencia_db(dados)
-                    st.toast("Nova ocorrência salva com sucesso!", icon="🎉")
-                    st.rerun()
-                else:
-                    st.error("Preencha os campos obrigatórios.")
-    else:
-        st.warning("⚠️ Seu perfil (Técnico) tem acesso apenas para consulta. Solicite perfil de Analista ou Admin para cadastrar.")
+                with st.form(key=f"form_coment_{ocor_id}"):
+                    novo_coment = st.text_input("Adicionar dica de campo:", placeholder="Ex: Funciona apenas em modo Admin")
+                    if st.form_submit_button("Enviar Comentário"):
+                        if novo_coment:
+                            salvar_comentario(ocor_id, st.session_state.user.email, novo_coment)
+                            st.toast("Anotação adicionada!", icon="💬")
+                            st.rerun()
 
-# ------------------------------------------
+                # Exclusão (Exclusivo Gestor/Admin)
+                if st.session_state.user_role == "Admin":
+                    st.markdown("---")
+                    if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"del_{ocor_id}"):
+                        deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
+                        st.toast("Tratativa excluída com sucesso!", icon="🗑️")
+                        st.rerun()
+
+# ==========================================
+# ABA 2: CADASTRO COM ANEXO
+# ==========================================
+with tabs[1]:
+    st.subheader("➕ Novo Mapeamento Técnico")
+    with st.form("form_novo", clear_on_submit=True):
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
+            in_status = st.selectbox("📌 Status da Tratativa:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
+            in_nivel = st.selectbox("📊 Nível de Complexidade:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
+        with col_c2:
+            in_hw = st.selectbox("⚙️ Hardware / Equipamento:", LISTA_HARDWARE)
+            in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
+            in_anexo = st.file_uploader("📷 Anexar Foto do Erro / Screenshot (Opcional):", type=["png", "jpg", "jpeg"])
+
+        in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
+        in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
+        in_solucao = st.text_area("Solução Passo a Passo:", placeholder="Ex: Fixar IP na catraca e liberar a porta 8080")
+        
+        if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
+            if in_prob and in_motivo and in_solucao:
+                anexo_url = upload_anexo(in_anexo) if in_anexo else None
+                dados = {
+                    "sistema": in_sist,
+                    "equipamento": in_hw,
+                    "problema": in_prob,
+                    "motivo": in_motivo,
+                    "solucao": in_solucao,
+                    "status": in_status,
+                    "nivel": in_nivel,
+                    "tempo_estimado": in_tempo,
+                    "anexo_url": anexo_url
+                }
+                salvar_ocorrencia_db(dados, st.session_state.user.email)
+                st.toast("Tratativa salva com sucesso!", icon="🎉")
+                st.rerun()
+            else:
+                st.error("Preencha o problema, motivo e solução.")
+
+# ==========================================
 # ABA 3: DASHBOARD EXEC
-# ------------------------------------------
-with tab_dash:
-    st.subheader("📊 Indicadores de Atendimento")
+# ==========================================
+with tabs[2]:
+    st.subheader("📊 Indicadores da Central Técnica")
     if df_ocorrencias.empty:
-        st.info("Sem dados suficientes para gráficos.")
+        st.info("Cadastre dados para gerar os gráficos.")
     else:
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Total de Falhas Mapeadas", len(df_ocorrencias))
-        k2.metric("Equipamento com Mais Falhas", df_ocorrencias["equipamento"].mode()[0] if not df_ocorrencias.empty else "N/A")
-        k3.metric("Sistema Mais Demandado", df_ocorrencias["sistema"].mode()[0] if not df_ocorrencias.empty else "N/A")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total Mapeado", len(df_ocorrencias))
+        kpi2.metric("Hardware + Instável", df_ocorrencias["equipamento"].mode()[0] if not df_ocorrencias.empty else "N/A")
+        kpi3.metric("Sistema + Citado", df_ocorrencias["sistema"].mode()[0] if not df_ocorrencias.empty else "N/A")
+        
+        n1_count = len(df_ocorrencias[df_ocorrencias["nivel"].str.contains("N1", na=False)])
+        kpi4.metric("Resolvidos em N1", f"{(n1_count/len(df_ocorrencias))*100:.0f}%" if len(df_ocorrencias) > 0 else "0%")
         
         st.markdown("---")
         g1, g2 = st.columns(2)
@@ -309,7 +362,8 @@ with tab_dash:
             fig_hw = px.bar(
                 df_ocorrencias['equipamento'].value_counts().reset_index(),
                 x='count', y='equipamento', orientation='h',
-                title="<b>Volume de Erros por Hardware</b>",
+                title="<b>Top Equipamentos com Falhas</b>",
+                labels={'count': 'Ocorrências', 'equipamento': 'Hardware'},
                 color_discrete_sequence=['#58a6ff']
             )
             st.plotly_chart(fig_hw, use_container_width=True)
@@ -317,19 +371,20 @@ with tab_dash:
         with g2:
             fig_sist = px.pie(
                 df_ocorrencias, names='sistema', 
-                title="<b>Distribuição por Software</b>", hole=0.4
+                title="<b>Distribuição por Sistema (Software)</b>",
+                hole=0.4
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
-# ------------------------------------------
+# ==========================================
 # ABA 4: ASSISTENTE IA
-# ------------------------------------------
-with tab_ai:
-    st.subheader("🤖 Assistente de Diagnóstico")
-    pergunta = st.text_input("Qual o sintoma atual do cliente?", placeholder="Ex: Catraca não faz giro com leitor de facial")
+# ==========================================
+with tabs[3]:
+    st.subheader("🤖 Assistente Virtual de Diagnóstico")
+    pergunta_tecnico = st.text_input("Descreva o problema enfrentado:", placeholder="Ex: Catraca não abre e perdeu conexão na porta serial")
     
-    if pergunta and not df_ocorrencias.empty:
-        palavras = pergunta.lower().split()
+    if pergunta_tecnico and not df_ocorrencias.empty:
+        palavras = pergunta_tecnico.lower().split()
         matches = []
         for _, row in df_ocorrencias.iterrows():
             texto = f"{row['problema']} {row['motivo']} {row['equipamento']} {row['sistema']}".lower()
@@ -339,9 +394,36 @@ with tab_ai:
         
         matches.sort(key=lambda x: x[0], reverse=True)
         if matches:
-            top = matches[0][1]
-            st.markdown("### 💡 Solução Encontrada:")
-            st.info(f"**Causa Raiz:** {top['motivo']}")
-            st.success(f"**Procedimento:** {top['solucao']}")
+            top_match = matches[0][1]
+            st.markdown("### 💡 Diagnóstico Sugerido:")
+            st.info(f"**Causa Provável:** {top_match['motivo']}")
+            st.success(f"**Procedimento Recomendado:** {top_match['solucao']}")
         else:
-            st.warning("Nenhum diagnóstico direto encontrado.")
+            st.warning("Nenhum procedimento exato encontrado para essa busca.")
+
+# ==========================================
+# ABA 5: AUDIT LOG (EXCLUSIVO GESTOR/ADMIN)
+# ==========================================
+if st.session_state.user_role == "Admin" and len(tabs) > 4:
+    with tabs[4]:
+        st.subheader("📜 Histórico de Auditoria (Audit Log)")
+        st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
+        
+        try:
+            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
+            df_logs = pd.DataFrame(res_logs.data)
+            if not df_logs.empty:
+                st.dataframe(
+                    df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
+                    column_config={
+                        "created_at": "Data/Hora",
+                        "usuario_email": "Usuário",
+                        "acao": "Ação",
+                        "detalhes": "Detalhamento"
+                    },
+                    use_container_width=True
+                )
+            else:
+                st.info("Nenhum histórico registrado no momento.")
+        except Exception as e:
+            st.error(f"Erro ao carregar log: {e}")
