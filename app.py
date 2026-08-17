@@ -47,7 +47,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=5)
 def buscar_ocorrencias_cached():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(res.data)
@@ -68,9 +68,18 @@ def salvar_ocorrencia_db(dados, usuario_email):
     st.cache_data.clear()
 
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
-    registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
-    supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-    st.cache_data.clear()
+    try:
+        # 1. Deleta comentários vinculados primeiro (evita erro de chave estrangeira)
+        supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
+        # 2. Deleta a ocorrência principal
+        supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
+        # 3. Log e Limpeza de cache imediata
+        registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao excluir no banco: {e}")
+        return False
 
 def computar_voto(ocorrencia_id, tipo_voto, valor_atual):
     coluna = "votos_pos" if tipo_voto == "pos" else "votos_neg"
@@ -130,12 +139,17 @@ def obter_perfil_usuario(user_id, email):
     return role_atribuida
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN
+# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
 # ==========================================
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "user_role" not in st.session_state:
-    st.session_state.user_role = "Analista"
+# Recupera a sessão ativa do Supabase para não perder o login no F5
+if "user" not in st.session_state or st.session_state.user is None:
+    session = supabase.auth.get_session()
+    if session:
+        st.session_state.user = session.user
+        st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
+    else:
+        st.session_state.user = None
+        st.session_state.user_role = "Analista"
 
 def fazer_login(email, password):
     try:
@@ -303,9 +317,9 @@ with tabs[0]:
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
                     if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"del_{ocor_id}"):
-                        deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
-                        st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
-                        st.rerun()
+                        if deletar_ocorrencia_db(ocor_id, st.session_state.user.email):
+                            st.toast(f"Tratativa #{ocor_id} excluída!", icon="🗑️")
+                            st.rerun()
 
 # ==========================================
 # ABA 2: CADASTRO COM ANEXO
