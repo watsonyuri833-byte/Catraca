@@ -84,8 +84,8 @@ st.markdown("---")
 st.subheader("🔍 Base de Diagnósticos Técnicos e Soluções")
 st.caption("Consulte ou cadastre tratativas de hardware e sistemas de acesso.")
 
-# Listas independentes
-LISTA_CATRACAS = [
+# Listas de Opções Separadas
+LISTA_HARDWARE = [
     "Catraca litnet1",
     "Catraca litnet2",
     "Catraca litnet3",
@@ -103,26 +103,33 @@ LISTA_CATRACAS = [
     "Outro Hardware"
 ]
 
-LISTA_SISTEMAS = [
+LISTA_SISTEMA = [
     "Legado(Acesso)",
     "The new(Edge)",
     "Outro Sistema"
 ]
 
-LISTA_GERAL = LISTA_CATRACAS + LISTA_SISTEMAS
-
-# Form de Cadastro
+# Form de Cadastro com Seleção de Tipo
 with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
+    # Seleção do Tipo fora do formulário para atualizar dinamicamente o segundo campo
+    tipo_categoria = st.radio(
+        "Selecione o Tipo de Categoria:",
+        ["Hardware", "Sistema"],
+        horizontal=True
+    )
+    
+    opcoes_equipamento = LISTA_HARDWARE if tipo_categoria == "Hardware" else LISTA_SISTEMA
+    
     with st.form("form_novo_problema", clear_on_submit=True):
         f_col1, f_col2 = st.columns([1, 2])
         
         with f_col1:
-            eq_input = st.selectbox("Categoria (Hardware ou Sistema):", LISTA_GERAL)
+            eq_input = st.selectbox(f"Selecione o ({tipo_categoria}):", opcoes_equipamento)
         with f_col2:
-            prob_input = st.text_input("Problema (Sintoma):", placeholder="Ex: Erro de conexão de banco no módulo Acesso")
+            prob_input = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca travada ou erro de sincronização")
             
-        motivo_input = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Serviço parado ou falha de rede")
-        solucao_input = st.text_area("Solução:", placeholder="Ex: Reiniciar o serviço e validar a porta 5432")
+        motivo_input = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Falha na placa lógica ou porta do banco bloqueada")
+        solucao_input = st.text_area("Solução:", placeholder="Ex: Reiniciar componente ou ajustar firewall")
         
         submit_btn = st.form_submit_button("💾 Salvar no Supabase")
         
@@ -187,7 +194,7 @@ def renderizar_painel(df_dados, itens_permitidos):
                 st.success(f"**Solução:** {row.get('solucao', '-')}")
 
 with tab_catracas:
-    renderizar_painel(df_ocorrencias, LISTA_CATRACAS)
+    renderizar_painel(df_ocorrencias, LISTA_HARDWARE)
 
 with tab_sistemas:
-    renderizar_painel(df_ocorrencias, LISTA_SISTEMAS)
+    renderizar_painel(df_ocorrencias, LISTA_SISTEMA)
