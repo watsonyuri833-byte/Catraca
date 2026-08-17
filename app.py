@@ -62,7 +62,6 @@ def buscar_ocorrencias():
     return pd.DataFrame(resposta.data)
 
 def salvar_ocorrencia(sistema, equipamento, problema, motivo, solucao):
-    # Salvamos tanto o sistema quanto o equipamento
     dados = {
         "sistema": sistema,
         "equipamento": equipamento,
@@ -136,7 +135,7 @@ with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
                     st.success("Ocorrência registrada com sucesso!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro ao salvar: {e}. Verifique se a coluna 'sistema' existe na tabela 'ocorrencias'.")
+                    st.error(f"Erro ao salvar: {e}.")
             else:
                 st.error("Preencha todos os campos obrigatórios antes de salvar.")
 
@@ -185,7 +184,7 @@ if not df_exibicao.empty:
             df_exibicao["motivo"].astype(str).str.contains(busca_txt, case=False, na=False) |
             df_exibicao["solucao"].astype(str).str.contains(busca_txt, case=False, na=False) |
             df_exibicao["sistema"].astype(str).str.contains(busca_txt, case=False, na=False) |
-            df_exibicao["equipamento"].astype(str).str.contains(busca_txt, case=False, na-False)
+            df_exibicao["equipamento"].astype(str).str.contains(busca_txt, case=False, na=False)
         ]
 
 # Exibição dos cards
