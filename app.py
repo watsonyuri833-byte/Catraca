@@ -1,32 +1,18 @@
 import streamlit as st
 import pandas as pd
+from supabase import create_client, Client
 
 # Configuração da página
 st.set_page_config(
-    page_title="actuar.group - Troubleshooting & Pódio",
-    page_icon="⚡",
+    page_title="actuar.group - Troubleshooting",
+    page_icon="🛠️",
     layout="wide"
 )
 
-# Estilização CSS customizada para visual SaaS Dark
+# Estilização CSS para visual Dark
 st.markdown("""
 <style>
-    /* Estilo dos cards de pódio e métricas */
-    .st-podium-card {
-        background-color: #1E293B;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        border: 1px solid #334155;
-        margin-bottom: 10px;
-    }
-    .st-gold { border: 2px solid #EAB308; }
-    .st-silver { border: 2px solid #94A3B8; }
-    .st-bronze { border: 2px solid #D97706; }
-    
-    /* Ajuste dos botões de navegação superiores */
     div.stButton > button {
-        width: 100%;
         border-radius: 8px;
         background-color: #1E293B;
         color: #F8FAFC;
@@ -39,8 +25,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Topo: Cabeçalho
-col_logo, col_space, col_user = st.columns([2, 5, 2])
+# Inicialização do Cliente Supabase
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# Funções de Leitura e Escrita
+def buscar_ocorrencias():
+    resposta = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
+    return pd.DataFrame(resposta.data)
+
+def salvar_ocorrencia(equipamento, problema, motivo, solucao):
+    dados = {
+        "equipamento": equipamento,
+        "problema": problema,
+        "motivo": motivo,
+        "solucao": solucao
+    }
+    supabase.table("ocorrencias").insert(dados).execute()
+
+# Topo
+col_logo, col_space, col_user = st.columns([3, 5, 2])
 with col_logo:
     st.title("actuar.group")
 with col_user:
@@ -48,99 +57,74 @@ with col_user:
 
 st.markdown("---")
 
-# --- NAVEGAÇÃO POR ABAS NO TOPO ---
-nav_cols = st.columns(6)
-with nav_cols[0]:
-    page_dash = st.button("📊 Troubleshooting")
-with nav_cols[1]:
-    page_prio = st.button("⭐ Prioridades")
-with nav_cols[2]:
-    page_pecas = st.button("📦 Solicit. Peças")
-with nav_cols[3]:
-    page_rank = st.button("🏆 Ranking Geral")
-with nav_cols[4]:
-    page_envio = st.button("🚚 Envio")
-with nav_cols[5]:
-    page_faq = st.button("❓ FAQ / Métricas")
+st.subheader("🔍 Base de Erros e Soluções (Catracas & Periféricos)")
+st.caption("Consulte ou cadastre diagnósticos técnicos e tratativas recomendadas.")
 
-# Gerenciamento de Estado da Navegação
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "Troubleshooting"
-
-if page_dash: st.session_state.pagina = "Troubleshooting"
-if page_prio: st.session_state.pagina = "Prioridades"
-if page_pecas: st.session_state.pagina = "Solicit. Peças"
-if page_rank: st.session_state.pagina = "Ranking Geral"
-if page_envio: st.session_state.pagina = "Envio"
-if page_faq: st.session_state.pagina = "FAQ / Métricas"
+# --- SEÇÃO DE CADASTRO DE OCORRÊNCIAS ---
+with st.expander("➕ Cadastrar Novo Problema / Solução", expanded=False):
+    st.markdown("##### Preencha os campos abaixo para adicionar à base:")
+    with st.form("form_novo_problema", clear_on_submit=True):
+        f_col1, f_col2 = st.columns([1, 2])
+        
+        with f_col1:
+            eq_input = st.selectbox("Equipamento:", ["Catraca", "Control iD", "Face Webcam", "Outro"])
+        with f_col2:
+            prob_input = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca reiniciando ao acionar solenoide")
+            
+        motivo_input = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Fonte de alimentação subdimensionada")
+        solucao_input = st.text_area("Solução:", placeholder="Ex: Substituir fonte por uma de 12.8V / 3A")
+        
+        submit_btn = st.form_submit_button("💾 Salvar no Supabase")
+        
+        if submit_btn:
+            if prob_input and motivo_input and solucao_input:
+                try:
+                    salvar_ocorrencia(eq_input, prob_input, motivo_input, solucao_input)
+                    st.success("Ocorrência cadastrada com sucesso no banco de dados!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar no Supabase: {e}")
+            else:
+                st.error("Por favor, preencha todos os campos antes de salvar.")
 
 st.markdown("---")
 
-# --- CONTEÚDO DAS PÁGINAS ---
+# --- CARREGAR DADOS DO SUPABASE ---
+try:
+    df_ocorrencias = buscar_ocorrencias()
+except Exception as e:
+    st.error(f"Erro ao conectar com o Supabase: {e}")
+    df_ocorrencias = pd.DataFrame(columns=["equipamento", "problema", "motivo", "solucao"])
 
-if st.session_state.pagina == "Troubleshooting":
-    st.subheader("🔍 Base de Erros e Soluções (Catracas & Periféricos)")
-    st.caption("Consulte os diagnósticos técnicos e tratativas recomendadas.")
+# --- FILTROS DE CONSULTA ---
+col_f1, col_f2 = st.columns([1, 2])
+with col_f1:
+    opcoes_eq = ["Todos"] + list(df_ocorrencias["equipamento"].unique()) if not df_ocorrencias.empty else ["Todos"]
+    filtro_eq = st.selectbox("Filtrar por Equipamento:", opcoes_eq)
+with col_f2:
+    busca_txt = st.text_input("Buscar problema ou palavra-chave:", "")
 
-    # Filtros
-    f_col1, f_col2 = st.columns(2)
-    with f_col1:
-        eq_filter = st.selectbox("Equipamento:", ["Todos", "Catraca", "Control iD", "Face Webcam"])
-    with f_col2:
-        search_query = st.text_input("Buscar problema ou palavra-chave:", "")
+# Filtragem dos dados
+df_exibicao = df_ocorrencias.copy()
 
-    st.markdown("### 📋 Mapeamento de Ocorrências")
-    
-    # Exemplo de Cards estilo SaaS
-    with st.expander("🔴 [Control iD] Mostra nome de outro aluno ao ler o rosto"):
-        st.error("**Causa Raiz:** Corrupção da base de fotos local no dispositivo.")
-        st.success("**Solução:** Apagar memória de fotos do aparelho e refazer resync completo.")
+if not df_exibicao.empty:
+    if filtro_eq != "Todos":
+        df_exibicao = df_exibicao[df_exibicao["equipamento"] == filtro_eq]
 
-    with st.expander("🟡 [Face Webcam] Imagem travando ou caindo conexão"):
-        st.warning("**Causa Raiz:** Extensor USB passivo com perda de pacotes.")
-        st.success("**Solução:** Conectar direto na porta USB ou utilizar extensor 3.0 ativo.")
+    if busca_txt:
+        df_exibicao = df_exibicao[
+            df_exibicao["problema"].str.contains(busca_txt, case=False, na=False) |
+            df_exibicao["motivo"].str.contains(busca_txt, case=False, na=False) |
+            df_exibicao["solucao"].str.contains(busca_txt, case=False, na=False)
+        ]
 
-    with st.expander("🔴 [Catraca] Libera no facial local, mas não via comando TCP/IP"):
-        st.error("**Causa Raiz:** Configuração de sentido ou bloqueio de porta/firmware.")
-        st.success("**Solução:** Verificar parametrização de sentido da placa e liberar portas de comando.")
+# --- MAPEAMENTO DE OCORRÊNCIAS ---
+st.markdown("### 📋 Mapeamento de Ocorrências")
 
-elif st.session_state.pagina == "Ranking Geral":
-    st.subheader("🏆 Pódio por Departamento")
-    st.caption("Top 3 colocados do departamento de suporte a catracas.")
-
-    c_s, c1, c2, c3, c_e = st.columns([1, 3, 3, 3, 1])
-    
-    with c1:
-        st.markdown("""
-        <div class="st-podium-card st-silver">
-            <h3>🥈 2º Lugar</h3>
-            <h4>Watson Cruz</h4>
-            <h2>1685 pts</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with c2:
-        st.markdown("""
-        <div class="st-podium-card st-gold">
-            <h3>🥇 1º Lugar</h3>
-            <h4>Analista Destaque</h4>
-            <h2>1971 pts</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with c3:
-        st.markdown("""
-        <div class="st-podium-card st-bronze">
-            <h3>🥉 3º Lugar</h3>
-            <h4>Analista 3</h4>
-            <h2>848 pts</h2>
-        </div>
-        """, unsafe_allow_html=True)
-
-elif st.session_state.pagina == "Envio":
-    st.subheader("🚚 Envio de Peças")
-    st.info("📦 **Área em construção:** As telas de rastreamento de envio de peças e extensores serão integradas em breve.")
-
+if df_exibicao.empty:
+    st.info("Nenhuma ocorrência registrada ainda. Utilize o formulário acima para cadastrar a primeira solução.")
 else:
-    st.subheader(f"📌 {st.session_state.pagina}")
-    st.write("Módulo em desenvolvimento.")
+    for idx, row in df_exibicao.iterrows():
+        with st.expander(f"🔴 [{row['equipamento']}] {row['problema']}"):
+            st.markdown(f"**Motivo (Causa Raiz):** {row['motivo']}")
+            st.success(f"**Solução:** {row['solucao']}")
