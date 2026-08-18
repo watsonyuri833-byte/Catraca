@@ -167,7 +167,6 @@ def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        supabase.table("favoritos").delete().eq("ocorrencia_id", ocorrencia_id).execute()
         res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
         
         if res.data and len(res.data) > 0:
@@ -197,26 +196,27 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
         "comentario": texto
     }).execute()
 
-# Gestão de Favoritos no Supabase (tabela "favoritos": user_id, ocorrencia_id)
+# Gestão de Favoritos utilizando a própria tabela de perfis (Coluna JSON/Array ou texto separado por vírgula para robustez imediata)
 def buscar_favoritos_usuario(user_id):
     try:
-        res = supabase.table("favoritos").select("ocorrencia_id").eq("user_id", user_id).execute()
-        return [item["ocorrencia_id"] for item in res.data]
+        res = supabase.table("perfis").select("favoritos").eq("user_id", user_id).execute()
+        if res.data and res.data[0].get("favoritos"):
+            favs = res.data[0].get("favoritos")
+            if isinstance(favs, list):
+                return [int(x) for x in favs]
+            elif isinstance(favs, str) and favs.strip():
+                return [int(x.strip()) for x in favs.split(",") if x.strip().isdigit()]
+        return []
     except Exception:
         return []
 
-def alternar_favorito(user_id, ocorrencia_id, eh_favorito):
+def salvar_favoritos_usuario(user_id, lista_ids):
     try:
-        if eh_favorito:
-            supabase.table("favoritos").delete().eq("user_id", user_id).eq("ocorrencia_id", ocorrencia_id).execute()
-        else:
-            try:
-                supabase.table("favoritos").insert({"user_id": user_id, "ocorrencia_id": ocorrencia_id}).execute()
-            except Exception:
-                # Caso a tabela ainda não exista no Supabase, tenta criá-la via instrução ou avisar
-                pass
+        # Salva como string separada por vírgulas para compatibilidade universal com qualquer tipo de coluna text/json no Supabase
+        str_ids = ",".join([str(i) for i in lista_ids])
+        supabase.table("perfis").update({"favoritos": str_ids}).eq("user_id", user_id).execute()
     except Exception as e:
-        print(f"Erro ao alternar favorito: {e}")
+        print(f"Erro ao salvar favoritos: {e}")
 
 def upload_anexo(file):
     try:
@@ -289,7 +289,8 @@ def obter_perfil_usuario(user_id, email):
             "user_id": user_id, 
             "email": email, 
             "role": role_atribuida,
-            "avatar_url": None
+            "avatar_url": None,
+            "favoritos": ""
         }).execute()
     except Exception:
         pass
@@ -438,7 +439,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
 # Buscar IDs favoritos do usuário logado
 ids_favoritos = buscar_favoritos_usuario(st.session_state.user.id)
 
-# Abas de navegação (Com favoritos para todos + restritas de Admin)
+# Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("🤖 Assistente IA")
@@ -491,18 +492,21 @@ with tabs[0]:
             email_autor = row.get('autor_email', None)
             nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
             
-            # Verifica se está favoritado
             is_fav = ocor_id in ids_favoritos
-            icone_fav = "⭐ Favorito" if is_fav else "☆ Favoritar"
+            texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
             titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
             
             with st.expander(titulo_card):
-                col_btn_fav, col_restantes = st.columns([1, 6])
-                with col_btn_fav:
-                    if st.button(icone_fav, key=f"fav_{ocor_id}"):
-                        alternar_favorito(st.session_state.user.id, ocor_id, is_fav)
-                        st.rerun()
+                if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
+                    if is_fav:
+                        ids_favoritos = [i for i in ids_favoritos if i != ocor_id]
+                    else:
+                        if ocor_id not in ids_favoritos:
+                            ids_favoritos.append(ocor_id)
+                    salvar_favoritos_usuario(st.session_state.user.id, ids_favoritos)
+                    st.toast("Lista de favoritos atualizada!", icon="⭐")
+                    st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**💻 Sistema:** {sist}")
@@ -613,7 +617,7 @@ with tabs[1]:
     st.caption("Acesse rapidamente os problemas que você mais resolve, salvos em seus atalhos.")
     
     if not ids_favoritos or df_ocorrencias.empty:
-        st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '☆ Favoritar' dentro de qualquer card na aba de Diagnósticos para fixá-lo aqui.")
+        st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '☆ Favoritar Chamado' dentro de qualquer card na aba de Diagnósticos para fixá-lo aqui.")
     else:
         df_fav = df_ocorrencias[df_ocorrencias["id"].isin(ids_favoritos)]
         
@@ -630,8 +634,10 @@ with tabs[1]:
             titulo_card_fav = f"⭐ [{status}] {sist} + {hw} — {prob}"
             
             with st.expander(titulo_card_fav):
-                if st.button("❌ Remover dos Favoritos", key=f"rm_fav_{ocor_id}"):
-                    alternar_favorito(st.session_state.user.id, ocor_id, True)
+                if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
+                    ids_favoritos = [i for i in ids_favoritos if i != ocor_id]
+                    salvar_favoritos_usuario(st.session_state.user.id, ids_favoritos)
+                    st.toast("Removido dos favoritos!", icon="🗑️")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
