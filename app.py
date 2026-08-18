@@ -198,8 +198,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
                     "solucao": solucao or "Não informada",
                     "status": "🟢 Solução Definitiva",
                     "nivel": "N1 - Fácil / Rápido",
-                    "tempo_estimado": "15 minutos",
-                    "autor_email": usuario_email
+                    "tempo_estimado": "15 minutos"
                 }
                 supabase.table("ocorrencias").insert(dados).execute()
                 importadas += 1
@@ -736,8 +735,7 @@ with tabs[indice_cad]:
                     "status": in_status,
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
-                    "anexo_url": anexo_url,
-                    "autor_email": autor_reg
+                    "anexo_url": anexo_url
                 }
                 salvar_ocorrencia_db(dados, autor_reg)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
@@ -752,7 +750,7 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
     indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
     with tabs[indice_export]:
         st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico do banco de dados[cite: 2].")
+        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico do banco de dados.")
         
         st.markdown("### 📤 Importar Ocorrências em Lote")
         with st.form("form_import_txt"):
