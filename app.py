@@ -151,8 +151,15 @@ def registrar_log(usuario_email, acao, detalhes):
     except Exception as e:
         print(f"Erro ao registrar log: {e}")
 
+def limpar_dados_para_json(dados):
+    """Converte valores NaN do pandas para None para evitar erros de JSON."""
+    return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
+
 def salvar_ocorrencia_db(dados, usuario_email):
-    supabase.table("ocorrencias").insert(dados).execute()
+    if "origem" not in dados:
+        dados["origem"] = "Manual"
+    dados_limpos = limpar_dados_para_json(dados)
+    supabase.table("ocorrencias").insert(dados_limpos).execute()
     registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
 
 def processar_importacao_txt(file_bytes, usuario_email):
@@ -212,9 +219,12 @@ def processar_importacao_txt(file_bytes, usuario_email):
                     "solucao": solucao_final,
                     "status": "🟢 Solução Definitiva",
                     "nivel": "N1 - Fácil / Rápido",
-                    "tempo_estimado": "15 minutos"
+                    "tempo_estimado": "15 minutos",
+                    "origem": "Importado TXT",
+                    "anexo_url": None
                 }
-                supabase.table("ocorrencias").insert(dados).execute()
+                dados_limpos = limpar_dados_para_json(dados)
+                supabase.table("ocorrencias").insert(dados_limpos).execute()
                 importadas += 1
                 
         if importadas > 0:
@@ -226,7 +236,8 @@ def processar_importacao_txt(file_bytes, usuario_email):
 
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
     try:
-        supabase.table("ocorrencias").update(dados_atualizados).eq("id", ocorrencia_id).execute()
+        dados_limpos = limpar_dados_para_json(dados_atualizados)
+        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
         registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
         return True
     except Exception as e:
@@ -437,12 +448,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
@@ -472,9 +483,12 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
+for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "origem"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
-        df_ocorrencias[col] = None
+        if col == "origem":
+            df_ocorrencias[col] = "Manual"
+        else:
+            df_ocorrencias[col] = None
 
 # Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
@@ -531,6 +545,8 @@ with tabs[0]:
             nivel = row.get('nivel', 'N1')
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
+            origem_reg = row.get('origem', 'Manual')
+            tag_origem = "👤 Manual" if origem_reg == "Manual" else "📁 Importado TXT"
             
             is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
@@ -548,10 +564,11 @@ with tabs[0]:
                         st.toast("Adicionado aos favoritos com sucesso!", icon="⭐")
                     st.rerun()
                 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**⏱️ Complexidade/Tempo:** {nivel} ({tempo})")
+                c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
+                c4.markdown(f"**📌 Origem:** {tag_origem}")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
@@ -687,6 +704,8 @@ with tabs[1]:
             nivel = row.get('nivel', 'N1')
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
+            origem_reg = row.get('origem', 'Manual')
+            tag_origem = "👤 Manual" if origem_reg == "Manual" else "📁 Importado TXT"
             
             titulo_card_fav = f"⭐ [{status}] {sist} + {hw} — {prob}"
             
@@ -696,10 +715,11 @@ with tabs[1]:
                     st.toast("Removido dos favoritos!", icon="🗑️")
                     st.rerun()
                 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**⏱️ Complexidade/Tempo:** {nivel} ({tempo})")
+                c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
+                c4.markdown(f"**📌 Origem:** {tag_origem}")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
@@ -746,7 +766,8 @@ with tabs[indice_cad]:
                     "status": in_status,
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
-                    "anexo_url": anexo_url
+                    "anexo_url": anexo_url,
+                    "origem": "Manual"
                 }
                 salvar_ocorrencia_db(dados, autor_reg)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
