@@ -282,12 +282,12 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 def obter_icone_status(status):
-    if status == "Solução Definitiva" or status == "?? Solução Definitiva":
-        return "??"
-    elif status == "Contorno / Paliativo" or status == "?? Contorno / Paliativo":
-        return "??"
+    if "Solução Definitiva" in status:
+        return "&#128994;"  # Círculo verde
+    elif "Contorno" in status or "Paliativo" in status:
+        return "&#128999;"  # Círculo amarelo
     else:
-        return "??"
+        return "&#128308;"  # Círculo vermelho
 
 # ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
@@ -315,7 +315,7 @@ def fazer_login(email, password):
         st.session_state.user_role = role_ret
         st.session_state.user_avatar = avatar_ret
         st.session_state.favoritos = []
-        st.toast("Login realizado com sucesso!", icon="?")
+        st.toast("Login realizado com sucesso!", icon="&#9989;")
         st.rerun()
     except Exception as e:
         st.error(f"Falha na autenticação: {e}")
@@ -345,7 +345,7 @@ if st.session_state.user is None:
             st.image("logo.png", width=90)
             
         st.title("actuar.group")
-        st.subheader("?? Central Técnica de Suporte")
+        st.subheader("&#128274; Central Técnica de Suporte")
         
         with st.form("login_form"):
             email_input = st.text_input("E-mail:")
@@ -381,7 +381,7 @@ with col_header_left:
         st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
 
 with col_header_right:
-    role_badge = f"??? **{st.session_state.user_role}**"
+    role_badge = f"&#128737; **{st.session_state.user_role}**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
     avatar_url = st.session_state.get("user_avatar", None)
     
@@ -391,9 +391,9 @@ with col_header_right:
             try:
                 st.image(avatar_url, width=40)
             except Exception:
-                st.markdown("??")
+                st.markdown("&#128100;")
         else:
-            st.markdown("??")
+            st.markdown("&#128100;")
     with col_txt:
         st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
     with col_btn:
@@ -402,7 +402,7 @@ with col_header_right:
 
 st.markdown("---")
 
-with st.expander("?? Configurar / Alterar Foto de Perfil"):
+with st.expander("&#9881; Configurar / Alterar Foto de Perfil"):
     col_up1, col_up2 = st.columns([2, 1])
     with col_up1:
         novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
@@ -418,7 +418,7 @@ with st.expander("?? Configurar / Alterar Foto de Perfil"):
                     except Exception:
                         pass
                     st.session_state.user_avatar = url_gerada
-                    st.toast("Foto de perfil alterada com sucesso!", icon="?")
+                    st.toast("Foto de perfil alterada com sucesso!", icon="&#9989;")
                     st.rerun()
                 else:
                     st.error("Falha ao enviar a imagem.")
@@ -434,7 +434,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Abas de navegação com estrela e ícones customizados
+# Abas de navegação usando Unicode
 abas_navegacao = ["?? Diagnósticos", "? Meus Favoritos", "? Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("?? Assistente IA")
@@ -446,7 +446,7 @@ tabs = st.tabs(abas_navegacao)
 # ABA 1: CONSULTA + EDIÇÃO + FAVORITO + AVALIAÇÃO + EXCLUSÃO
 # ==========================================
 with tabs[0]:
-    st.subheader("?? Base Mapeada de Ocorrências")
+    st.subheader("&#128269; Base Mapeada de Ocorrências")
     col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
     
     with col_f1:
@@ -493,30 +493,30 @@ with tabs[0]:
             texto_botao_fav = "? Remover dos Favoritos" if is_fav else "? Favoritar Chamado"
             
             limpa_status = status.replace("?? ", "").replace("?? ", "").replace("?? ", "")
-            titulo_card = f"{icone_fav}[{icone_status} {limpa_status}] {sist} + {hw} — {prob}  |  ?? Relatado por: {nome_autor}"
+            titulo_card = f"{icone_fav}[{limpa_status}] {sist} + {hw} — {prob} | Relatado por: {nome_autor}"
             
             with st.expander(titulo_card):
                 if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
                     if is_fav:
                         st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                        st.toast("Removido dos favoritos!", icon="???")
+                        st.toast("Removido dos favoritos!", icon="&#128465;")
                     else:
                         if ocor_id not in st.session_state.favoritos:
                             st.session_state.favoritos.append(ocor_id)
-                        st.toast("Adicionado aos favoritos com sucesso!", icon="?")
+                        st.toast("Adicionado aos favoritos com sucesso!", icon="&#11088;")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**?? Sistema:** {sist}")
-                c2.markdown(f"**?? Hardware:** {hw}")
-                c3.markdown(f"**?? Complexidade/Tempo:** {nivel} ({tempo})")
+                c1.markdown(f"**&#128187; Sistema:** {sist}")
+                c2.markdown(f"**&#9881; Hardware:** {hw}")
+                c3.markdown(f"**&#9201; Complexidade/Tempo:** {nivel} ({tempo})")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("?? **Evidência Anexada:**")
+                    st.markdown("&#128247; **Evidência Anexada:**")
                     try:
                         st.image(str(anexo), width=500)
                     except Exception:
@@ -536,7 +536,7 @@ with tabs[0]:
                         computar_voto(ocor_id, "neg", v_neg)
                         st.rerun()
 
-                st.markdown("**?? Observações dos Analistas:**")
+                st.markdown("**&#128172; Observações dos Analistas:**")
                 comentarios = buscar_comentarios(ocor_id)
                 for c in comentarios:
                     st.caption(f"**{c['usuario']}**: {c['comentario']}")
@@ -546,7 +546,7 @@ with tabs[0]:
                     if st.form_submit_button("Enviar Comentário"):
                         if novo_coment:
                             salvar_comentario(ocor_id, st.session_state.user.email, novo_coment)
-                            st.toast("Anotação adicionada!", icon="??")
+                            st.toast("Anotação adicionada!", icon="&#128172;")
                             st.rerun()
 
                 if st.session_state.user_role == "Admin":
@@ -598,24 +598,24 @@ with tabs[0]:
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
-                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="?")
+                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="&#9989;")
                                     st.rerun()
 
                     if st.button(f"??? Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
                         sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
                         if sucesso:
-                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="???")
+                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="&#128465;")
                             st.rerun()
 
 # ==========================================
 # ABA 2: MEUS FAVORITOS
 # ==========================================
 with tabs[1]:
-    st.subheader("? Meus Chamados Frequentes & Favoritos")
+    st.subheader("&#11088; Meus Chamados Frequentes & Favoritos")
     st.caption("Acesse rapidamente os problemas que você mais resolve.")
     
     if not st.session_state.favoritos or df_ocorrencias.empty:
-        st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '? Favoritar Chamado' em qualquer card na aba de Diagnosticos.")
+        st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '? Favoritar Chamado' em qualquer card na aba de Diagnósticos.")
     else:
         df_fav = df_ocorrencias[df_ocorrencias["id"].isin(st.session_state.favoritos)]
         
@@ -629,27 +629,26 @@ with tabs[1]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            icone_status = obter_icone_status(status)
             limpa_status = status.replace("?? ", "").replace("?? ", "").replace("?? ", "")
-            titulo_card_fav = f"? [{icone_status} {limpa_status}] {sist} + {hw} — {prob}"
+            titulo_card_fav = f"? [{limpa_status}] {sist} + {hw} — {prob}"
             
             with st.expander(titulo_card_fav):
                 if st.button("? Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
                     st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                    st.toast("Removido dos favoritos!", icon="???")
+                    st.toast("Removido dos favoritos!", icon="&#128465;")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**?? Sistema:** {sist}")
-                c2.markdown(f"**?? Hardware:** {hw}")
-                c3.markdown(f"**?? Complexidade/Tempo:** {nivel} ({tempo})")
+                c1.markdown(f"**&#128187; Sistema:** {sist}")
+                c2.markdown(f"**&#9881; Hardware:** {hw}")
+                c3.markdown(f"**&#9201; Complexidade/Tempo:** {nivel} ({tempo})")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("?? **Evidência Anexada:**")
+                    st.markdown("&#128247; **Evidência Anexada:**")
                     try:
                         st.image(str(anexo), width=500)
                     except Exception:
@@ -680,13 +679,12 @@ with tabs[indice_cad]:
             if in_prob and in_motivo and in_solucao:
                 anexo_url = upload_anexo(in_anexo) if in_anexo else None
                 
-                # Prefixar status com a bolinha correspondente (verde para Definitiva, amarela para Paliativo)
                 if in_status == "Solução Definitiva":
-                    status_formatado = "?? Solução Definitiva"
+                    status_formatado = "Solução Definitiva"
                 elif in_status == "Contorno / Paliativo":
-                    status_formatado = "?? Contorno / Paliativo"
+                    status_formatado = "Contorno / Paliativo"
                 else:
-                    status_formatado = "?? Bug / Em Análise"
+                    status_formatado = "Bug / Em Análise"
 
                 dados = {
                     "sistema": in_sist,
@@ -701,7 +699,7 @@ with tabs[indice_cad]:
                     "autor_email": st.session_state.user.email
                 }
                 salvar_ocorrencia_db(dados, st.session_state.user.email)
-                st.toast("Tratativa salva com sucesso!", icon="??")
+                st.toast("Tratativa salva com sucesso!", icon="&#127881;")
                 st.rerun()
             else:
                 st.error("Preencha o problema, motivo e solução.")
@@ -712,7 +710,7 @@ with tabs[indice_cad]:
 if st.session_state.user_role == "Admin" and "?? Assistente IA" in abas_navegacao:
     indice_ia = abas_navegacao.index("?? Assistente IA")
     with tabs[indice_ia]:
-        st.subheader("?? Assistente Virtual de Diagnóstico Avançado (IA)")
+        st.subheader("&#129302; Assistente Virtual de Diagnóstico Avançado (IA)")
         st.caption("Descreva cenários inéditos ou dúvidas de campo.")
         
         pergunta_tecnico = st.text_area(
@@ -759,7 +757,7 @@ if st.session_state.user_role == "Admin" and "?? Assistente IA" in abas_navegaca
                         diagnostico_ia = response.choices[0].message.content
 
                         st.markdown("---")
-                        st.markdown("### ?? Diagnóstico e Plano de Ação Sugerido")
+                        st.markdown("### &#128161; Diagnóstico e Plano de Ação Sugerido")
                         st.info(diagnostico_ia)
 
                     except Exception as e:
@@ -771,7 +769,7 @@ if st.session_state.user_role == "Admin" and "?? Assistente IA" in abas_navegaca
 if st.session_state.user_role == "Admin" and "?? Audit Log (Gestão)" in abas_navegacao:
     indice_audit = abas_navegacao.index("?? Audit Log (Gestão)")
     with tabs[indice_audit]:
-        st.subheader("?? Histórico de Auditoria (Audit Log)")
+        st.subheader("&#128220; Histórico de Auditoria (Audit Log)")
         st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
         
         try:
