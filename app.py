@@ -128,29 +128,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS (GLOBAL PARA LEITURA, ISOLADO PARA AÇÃO)
+# 2. CONEXÃO E BANCO DE DADOS
 # ==========================================
-def get_supabase_public() -> Client:
+@st.cache_resource
+def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-def get_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    client = create_client(url, key)
-    if "access_token" in st.session_state and st.session_state.access_token:
-        try:
-            client.auth.set_session(st.session_state.access_token, st.session_state.refresh_token)
-        except Exception:
-            pass
-    return client
-
-supabase = get_supabase()
-supabase_public = get_supabase_public()
+supabase = init_supabase()
 
 def buscar_ocorrencias_db():
-    res = supabase_public.table("ocorrencias").select("*").order("id", desc=True).execute()
+    res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(res.data)
 
 def registrar_log(usuario_email, acao, detalhes):
@@ -194,7 +183,8 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
     try:
-        res_comentarios = supabase_public.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+        # Buscar comentários do usuário para esta ocorrência para checar voto pré-existente
+        res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
         comentarios_usuario = res_comentarios.data if res_comentarios.data else []
         
         voto_anterior = None
@@ -209,13 +199,15 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
                 comentario_voto_id = c["id"]
                 break
                 
-        res_ocor = supabase_public.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
+        # Buscar contadores atuais
+        res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
         if not res_ocor.data:
             return
         v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
         v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
         
         if voto_anterior is None:
+            # Nunca votou: insere o registro do voto nos comentários e incrementa
             supabase.table("comentarios").insert({
                 "ocorrencia_id": ocorrencia_id,
                 "usuario": usuario_email,
@@ -226,6 +218,7 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg += 1
         elif voto_anterior == tipo_voto:
+            # Já votou exatamente nisso: clica de novo para desmarcar
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             if tipo_voto == "pos":
@@ -233,6 +226,7 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg = max(0, v_neg - 1)
         else:
+            # Mudou de voto (estava em pos e foi para neg ou vice-versa)
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             supabase.table("comentarios").insert({
@@ -252,7 +246,7 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
         st.error(f"Erro ao gerenciar voto: {e}")
 
 def buscar_comentarios(ocorrencia_id):
-    res = supabase_public.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
+    res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
     return res.data
 
 def salvar_comentario(ocorrencia_id, usuario, texto):
@@ -320,7 +314,7 @@ def obter_perfil_usuario(user_id, email):
         role_atribuida = "Analista"
         
     try:
-        res = supabase_public.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
+        res = supabase.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
         if res.data:
             if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
                 supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
@@ -347,29 +341,27 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO INDIVIDUAL
+# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
 # ==========================================
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "access_token" not in st.session_state:
-    st.session_state.access_token = None
-if "refresh_token" not in st.session_state:
-    st.session_state.refresh_token = None
-if "user_role" not in st.session_state:
-    st.session_state.user_role = "Analista"
-if "user_avatar" not in st.session_state:
-    st.session_state.user_avatar = None
+if "user" not in st.session_state or st.session_state.user is None:
+    session = supabase.auth.get_session()
+    if session:
+        st.session_state.user = session.user
+        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
+        st.session_state.user_role = role_ret
+        st.session_state.user_avatar = avatar_ret
+    else:
+        st.session_state.user = None
+        st.session_state.user_role = "Analista"
+        st.session_state.user_avatar = None
+
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
 
 def fazer_login(email, password):
     try:
-        client = get_supabase()
-        response = client.auth.sign_in_with_password({"email": email, "password": password})
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
-        st.session_state.access_token = response.session.access_token
-        st.session_state.refresh_token = response.session.refresh_token
-        
         role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
         st.session_state.user_role = role_ret
         st.session_state.user_avatar = avatar_ret
@@ -380,13 +372,8 @@ def fazer_login(email, password):
         st.error(f"Falha na autenticação: {e}")
 
 def fazer_logout():
-    try:
-        supabase.auth.sign_out()
-    except Exception:
-        pass
+    supabase.auth.sign_out()
     st.session_state.user = None
-    st.session_state.access_token = None
-    st.session_state.refresh_token = None
     st.session_state.user_role = "Analista"
     st.session_state.user_avatar = None
     st.session_state.favoritos = []
@@ -586,6 +573,7 @@ with tabs[0]:
                 v_pos = row.get('votos_pos', 0) or 0
                 v_neg = row.get('votos_neg', 0) or 0
                 
+                # Buscar comentários para verificar o voto do usuário atual
                 comentarios = buscar_comentarios(ocor_id)
                 user_voto = None
                 for c in comentarios:
