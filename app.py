@@ -196,28 +196,6 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
         "comentario": texto
     }).execute()
 
-# Gestão de Favoritos utilizando a própria tabela de perfis (Coluna JSON/Array ou texto separado por vírgula para robustez imediata)
-def buscar_favoritos_usuario(user_id):
-    try:
-        res = supabase.table("perfis").select("favoritos").eq("user_id", user_id).execute()
-        if res.data and res.data[0].get("favoritos"):
-            favs = res.data[0].get("favoritos")
-            if isinstance(favs, list):
-                return [int(x) for x in favs]
-            elif isinstance(favs, str) and favs.strip():
-                return [int(x.strip()) for x in favs.split(",") if x.strip().isdigit()]
-        return []
-    except Exception:
-        return []
-
-def salvar_favoritos_usuario(user_id, lista_ids):
-    try:
-        # Salva como string separada por vírgulas para compatibilidade universal com qualquer tipo de coluna text/json no Supabase
-        str_ids = ",".join([str(i) for i in lista_ids])
-        supabase.table("perfis").update({"favoritos": str_ids}).eq("user_id", user_id).execute()
-    except Exception as e:
-        print(f"Erro ao salvar favoritos: {e}")
-
 def upload_anexo(file):
     try:
         ext = file.name.split('.')[-1]
@@ -289,8 +267,7 @@ def obter_perfil_usuario(user_id, email):
             "user_id": user_id, 
             "email": email, 
             "role": role_atribuida,
-            "avatar_url": None,
-            "favoritos": ""
+            "avatar_url": None
         }).execute()
     except Exception:
         pass
@@ -318,6 +295,9 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user_role = "Analista"
         st.session_state.user_avatar = None
 
+if "favoritos" not in st.session_state:
+    st.session_state.favoritos = []
+
 def fazer_login(email, password):
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -325,6 +305,7 @@ def fazer_login(email, password):
         role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
         st.session_state.user_role = role_ret
         st.session_state.user_avatar = avatar_ret
+        st.session_state.favoritos = []
         st.toast("Login realizado com sucesso!", icon="✅")
         st.rerun()
     except Exception as e:
@@ -335,6 +316,7 @@ def fazer_logout():
     st.session_state.user = None
     st.session_state.user_role = "Analista"
     st.session_state.user_avatar = None
+    st.session_state.favoritos = []
     st.rerun()
 
 # --- TELA DE LOGIN ---
@@ -436,9 +418,6 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Buscar IDs favoritos do usuário logado
-ids_favoritos = buscar_favoritos_usuario(st.session_state.user.id)
-
 # Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
@@ -492,7 +471,7 @@ with tabs[0]:
             email_autor = row.get('autor_email', None)
             nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
             
-            is_fav = ocor_id in ids_favoritos
+            is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
             titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
@@ -500,12 +479,12 @@ with tabs[0]:
             with st.expander(titulo_card):
                 if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
                     if is_fav:
-                        ids_favoritos = [i for i in ids_favoritos if i != ocor_id]
+                        st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
+                        st.toast("Removido dos favoritos!", icon="🗑️")
                     else:
-                        if ocor_id not in ids_favoritos:
-                            ids_favoritos.append(ocor_id)
-                    salvar_favoritos_usuario(st.session_state.user.id, ids_favoritos)
-                    st.toast("Lista de favoritos atualizada!", icon="⭐")
+                        if ocor_id not in st.session_state.favoritos:
+                            st.session_state.favoritos.append(ocor_id)
+                        st.toast("Adicionado aos favoritos com sucesso!", icon="⭐")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
@@ -616,10 +595,10 @@ with tabs[1]:
     st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
     st.caption("Acesse rapidamente os problemas que você mais resolve, salvos em seus atalhos.")
     
-    if not ids_favoritos or df_ocorrencias.empty:
+    if not st.session_state.favoritos or df_ocorrencias.empty:
         st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '☆ Favoritar Chamado' dentro de qualquer card na aba de Diagnósticos para fixá-lo aqui.")
     else:
-        df_fav = df_ocorrencias[df_ocorrencias["id"].isin(ids_favoritos)]
+        df_fav = df_ocorrencias[df_ocorrencias["id"].isin(st.session_state.favoritos)]
         
         for _, row in df_fav.iterrows():
             ocor_id = int(row['id'])
@@ -635,8 +614,7 @@ with tabs[1]:
             
             with st.expander(titulo_card_fav):
                 if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
-                    ids_favoritos = [i for i in ids_favoritos if i != ocor_id]
-                    salvar_favoritos_usuario(st.session_state.user.id, ids_favoritos)
+                    st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
                     st.toast("Removido dos favoritos!", icon="🗑️")
                     st.rerun()
                 
