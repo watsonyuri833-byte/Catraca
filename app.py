@@ -128,15 +128,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS
+# 2. CONEXÃO E BANCO DE DADOS (ISOLAMENTO POR SESSÃO)
 # ==========================================
-@st.cache_resource
-def init_supabase() -> Client:
+def get_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    client = create_client(url, key)
+    # Restaura o token específico do usuário logado nesta sessão do Streamlit
+    if "access_token" in st.session_state and st.session_state.access_token:
+        try:
+            client.auth.set_session(st.session_state.access_token, st.session_state.refresh_token)
+        except Exception:
+            pass
+    return client
 
-supabase = init_supabase()
+supabase = get_supabase()
 
 def buscar_ocorrencias_db():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -183,7 +189,6 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
     try:
-        # Buscar comentários do usuário para esta ocorrência para checar voto pré-existente
         res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
         comentarios_usuario = res_comentarios.data if res_comentarios.data else []
         
@@ -199,7 +204,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
                 comentario_voto_id = c["id"]
                 break
                 
-        # Buscar contadores atuais
         res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
         if not res_ocor.data:
             return
@@ -207,7 +211,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
         v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
         
         if voto_anterior is None:
-            # Nunca votou: insere o registro do voto nos comentários e incrementa
             supabase.table("comentarios").insert({
                 "ocorrencia_id": ocorrencia_id,
                 "usuario": usuario_email,
@@ -218,7 +221,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg += 1
         elif voto_anterior == tipo_voto:
-            # Já votou exatamente nisso: clica de novo para desmarcar
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             if tipo_voto == "pos":
@@ -226,7 +228,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg = max(0, v_neg - 1)
         else:
-            # Mudou de voto (estava em pos e foi para neg ou vice-versa)
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             supabase.table("comentarios").insert({
@@ -341,27 +342,29 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
+# 3. CONTROLE DE SESSÃO INDIVIDUAL
 # ==========================================
-if "user" not in st.session_state or st.session_state.user is None:
-    session = supabase.auth.get_session()
-    if session:
-        st.session_state.user = session.user
-        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
-    else:
-        st.session_state.user = None
-        st.session_state.user_role = "Analista"
-        st.session_state.user_avatar = None
-
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+if "refresh_token" not in st.session_state:
+    st.session_state.refresh_token = None
+if "user_role" not in st.session_state:
+    st.session_state.user_role = "Analista"
+if "user_avatar" not in st.session_state:
+    st.session_state.user_avatar = None
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
 
 def fazer_login(email, password):
     try:
-        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        client = get_supabase()
+        response = client.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
+        st.session_state.access_token = response.session.access_token
+        st.session_state.refresh_token = response.session.refresh_token
+        
         role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
         st.session_state.user_role = role_ret
         st.session_state.user_avatar = avatar_ret
@@ -372,8 +375,13 @@ def fazer_login(email, password):
         st.error(f"Falha na autenticação: {e}")
 
 def fazer_logout():
-    supabase.auth.sign_out()
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
     st.session_state.user = None
+    st.session_state.access_token = None
+    st.session_state.refresh_token = None
     st.session_state.user_role = "Analista"
     st.session_state.user_avatar = None
     st.session_state.favoritos = []
@@ -573,7 +581,6 @@ with tabs[0]:
                 v_pos = row.get('votos_pos', 0) or 0
                 v_neg = row.get('votos_neg', 0) or 0
                 
-                # Buscar comentários para verificar o voto do usuário atual
                 comentarios = buscar_comentarios(ocor_id)
                 user_voto = None
                 for c in comentarios:
