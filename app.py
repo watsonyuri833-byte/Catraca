@@ -527,7 +527,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC (DESIGN TRANSPARENTE E COLORIDO)
+# ABA 3: DASHBOARD EXEC (DESIGN MODERNO DARK & CORES VIBRANTES)
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -544,8 +544,14 @@ with tabs[2]:
         
         st.markdown("---")
         g1, g2 = st.columns(2)
+        
+        # Paleta de cores vibrantes para o tema escuro
+        CORES_NEON = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4']
+        
         with g1:
             df_hw = df_ocorrencias['equipamento'].value_counts().reset_index()
+            df_hw.columns = ['equipamento', 'count']
+            
             fig_hw = px.bar(
                 df_hw,
                 x='count', 
@@ -553,29 +559,64 @@ with tabs[2]:
                 color='equipamento',
                 orientation='h',
                 title="<b>Top Equipamentos com Falhas</b>",
-                labels={'count': 'Ocorrências', 'equipamento': 'Hardware'},
-                color_discrete_sequence=px.colors.qualitative.Bold
+                text='count',
+                color_discrete_sequence=CORES_NEON
             )
+            
+            fig_hw.update_traces(
+                textposition='outside',
+                textfont=dict(color='#e6edf3', size=13),
+                width=0.45
+            )
+            
             fig_hw.update_layout(
                 showlegend=False,
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font_color='#c9d1d9'
+                font=dict(color='#c9d1d9', family="Sans-Serif"),
+                title_font=dict(size=16, color='#e6edf3'),
+                xaxis=dict(
+                    title="Ocorrências",
+                    showgrid=True,
+                    gridcolor='#21262d',
+                    tickdtick=1,
+                    dtick=1
+                ),
+                yaxis=dict(
+                    title="",
+                    showgrid=False
+                ),
+                margin=dict(l=20, r=40, t=50, b=40)
             )
             st.plotly_chart(fig_hw, use_container_width=True)
             
         with g2:
+            df_sist = df_ocorrencias['sistema'].value_counts().reset_index()
+            df_sist.columns = ['sistema', 'count']
+            
             fig_sist = px.pie(
-                df_ocorrencias, 
-                names='sistema', 
+                df_sist, 
+                names='sistema',
+                values='count',
                 title="<b>Distribuição por Sistema (Software)</b>",
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Safe
+                hole=0.55,
+                color_discrete_sequence=CORES_NEON
             )
+            
+            fig_sist.update_traces(
+                textinfo='percent+label',
+                textfont=dict(color='#ffffff', size=12),
+                marker=dict(line=dict(color='#0d1117', width=2))
+            )
+            
             fig_sist.update_layout(
+                showlegend=True,
+                legend=dict(font=dict(color='#e6edf3'), orientation="h", y=-0.1),
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font_color='#c9d1d9'
+                font=dict(color='#c9d1d9', family="Sans-Serif"),
+                title_font=dict(size=16, color='#e6edf3'),
+                margin=dict(l=20, r=20, t=50, b=40)
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
