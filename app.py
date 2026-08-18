@@ -138,7 +138,7 @@ supabase = init_supabase()
 
 def limpar_votos_negativos_id_5():
     try:
-        # Remove os votos negativos de teste da ocorrência #5
+        # Remove APENAS os registros de votos negativos/comentários de teste da ocorrência #5
         supabase.table("comentarios").delete().eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
         res_neg = supabase.table("comentarios").select("*").eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
         total_neg = len(res_neg.data) if res_neg.data else 0
@@ -146,7 +146,7 @@ def limpar_votos_negativos_id_5():
     except Exception:
         pass
 
-# Executa a limpeza da ID 5 na inicialização
+# Executa apenas a limpeza dos votos de teste da ID 5 (a ocorrência em si permanece intacta)
 limpar_votos_negativos_id_5()
 
 def buscar_ocorrencias_db():
@@ -419,7 +419,6 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Exportar Banco (TXT)")
