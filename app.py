@@ -427,7 +427,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC
+# ABA 3: DASHBOARD EXEC (CORES DIFERENCIADAS)
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -445,20 +445,27 @@ with tabs[2]:
         st.markdown("---")
         g1, g2 = st.columns(2)
         with g1:
+            df_hw = df_ocorrencias['equipamento'].value_counts().reset_index()
             fig_hw = px.bar(
-                df_ocorrencias['equipamento'].value_counts().reset_index(),
-                x='count', y='equipamento', orientation='h',
+                df_hw,
+                x='count', 
+                y='equipamento', 
+                color='equipamento',
+                orientation='h',
                 title="<b>Top Equipamentos com Falhas</b>",
                 labels={'count': 'Ocorrências', 'equipamento': 'Hardware'},
-                color_discrete_sequence=['#58a6ff']
+                color_discrete_sequence=px.colors.qualitative.Bold
             )
+            fig_hw.update_layout(showlegend=False)
             st.plotly_chart(fig_hw, use_container_width=True)
             
         with g2:
             fig_sist = px.pie(
-                df_ocorrencias, names='sistema', 
+                df_ocorrencias, 
+                names='sistema', 
                 title="<b>Distribuição por Sistema (Software)</b>",
-                hole=0.4
+                hole=0.4,
+                color_discrete_sequence=px.colors.qualitative.Safe
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
@@ -510,6 +517,6 @@ if st.session_state.user_role == "Admin" and len(tabs) > 4:
                     use_container_width=True
                 )
             else:
-                st.info("Nenum histórico registrado no momento.")
+                st.info("Nenhum histórico registrado no momento.")
         except Exception as e:
             st.error(f"Erro ao carregar log: {e}")
