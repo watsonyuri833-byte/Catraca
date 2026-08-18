@@ -222,7 +222,11 @@ def upload_anexo(file):
         except Exception:
             pass
             
-        url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
+        res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
+        if isinstance(res, dict):
+            url_res = res.get("publicUrl") or res.get("data", {}).get("publicUrl")
+        else:
+            url_res = str(res)
         return url_res
     except Exception as e:
         st.error(f"Erro no upload da imagem: {e}")
@@ -235,23 +239,24 @@ def upload_avatar(file, user_id):
         file_bytes = file.getvalue()
         
         try:
+            supabase.storage.create_bucket("avatares", {"public": True})
+        except Exception:
+            pass
+            
+        try:
             supabase.storage.from_("avatares").upload(
                 path=file_name,
                 file=file_bytes,
                 file_options={"content-type": file.type, "upsert": "true"}
             )
         except Exception:
-            try:
-                supabase.storage.create_bucket("avatares", {"public": True})
-                supabase.storage.from_("avatares").upload(
-                    path=file_name,
-                    file=file_bytes,
-                    file_options={"content-type": file.type, "upsert": "true"}
-                )
-            except Exception:
-                pass
+            pass
                 
-        url_res = supabase.storage.from_("avatares").get_public_url(file_name)
+        res = supabase.storage.from_("avatares").get_public_url(file_name)
+        if isinstance(res, dict):
+            url_res = res.get("publicUrl") or res.get("data", {}).get("publicUrl")
+        else:
+            url_res = str(res)
         return url_res
     except Exception as e:
         return upload_anexo(file)
@@ -358,7 +363,7 @@ LISTA_HARDWARE = [
     "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
-# Layout unificado do cabeçalho alinhado ao topo à direita (conforme imagem)
+# Layout unificado do cabeçalho alinhado ao topo à direita
 col_header_left, col_header_right = st.columns([6, 4])
 
 with col_header_left:
