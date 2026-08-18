@@ -342,7 +342,7 @@ if st.session_state.user is None:
             st.image("logo.png", width=90)
             
         st.title("actuar.group")
-        st.subheader("?? Central Técnica de Suporte")
+        st.subheader("??? Central Técnica de Suporte")
         
         with st.form("login_form"):
             email_input = st.text_input("E-mail:")
