@@ -464,11 +464,11 @@ with tabs[0]:
                             idx_tempo = lista_tempos.index(tempo) if tempo in lista_tempos else 0
 
                             with edit_col1:
-                                edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
+                                edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
                                 edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
                                 edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
                             with edit_col2:
-                                edit_hw = st.selectbox("⚙️ Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
+                                edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
                                 edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
                                 edit_anexo = st.file_uploader("📷 Substituir Foto/Anexo (Opcional):", type=["png", "jpg", "jpeg"], key=f"ea_{ocor_id}")
 
@@ -502,18 +502,18 @@ with tabs[0]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: CADASTRO COM ANEXO E AUTOR
+# ABA 2: CADASTRO COM ANEXO E AUTOR (CAMPOS INVERTIDOS)
 # ==========================================
 with tabs[1]:
     st.subheader("➕ Novo Mapeamento Técnico")
     with st.form("form_novo", clear_on_submit=True):
         col_c1, col_c2 = st.columns(2)
         with col_c1:
-            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
+            in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
             in_status = st.selectbox("📌 Status da Tratativa:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
             in_nivel = st.selectbox("📊 Nível de Complexidade:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
         with col_c2:
-            in_hw = st.selectbox("⚙️ Hardware / Equipamento:", LISTA_HARDWARE)
+            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
             in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
             in_anexo = st.file_uploader("📷 Anexar Foto do Erro / Screenshot (Opcional):", type=["png", "jpg", "jpeg"])
 
