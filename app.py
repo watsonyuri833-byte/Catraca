@@ -4,7 +4,6 @@ import pandas as pd
 from supabase import create_client, Client
 import os
 import time
-import openai
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
@@ -272,34 +271,6 @@ def upload_anexo(file):
         st.error(f"Erro no upload da imagem: {e}")
         return None
 
-def upload_avatar(file, user_id):
-    try:
-        ext = file.name.split('.')[-1]
-        file_name = f"avatar_{user_id}_{int(time.time())}.{ext}"
-        file_bytes = file.getvalue()
-        
-        try:
-            supabase.storage.from_("avatares").upload(
-                path=file_name,
-                file=file_bytes,
-                file_options={"content-type": file.type, "upsert": "true"}
-            )
-        except Exception:
-            try:
-                supabase.storage.create_bucket("avatares", {"public": True})
-                supabase.storage.from_("avatares").upload(
-                    path=file_name,
-                    file=file_bytes,
-                    file_options={"content-type": file.type, "upsert": "true"}
-                )
-            except Exception:
-                pass
-                
-        url_res = supabase.storage.from_("avatares").get_public_url(file_name)
-        return url_res
-    except Exception as e:
-        return upload_anexo(file)
-
 EMAILS_GESTORES = ["watson@actuar.group"]
 
 def obter_perfil_usuario(user_id, email):
@@ -309,11 +280,11 @@ def obter_perfil_usuario(user_id, email):
         role_atribuida = "Analista"
         
     try:
-        res = supabase.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
+        res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
         if res.data:
             if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
                 supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
-            return role_atribuida, res.data[0].get("avatar_url")
+            return role_atribuida
     except Exception:
         pass
     
@@ -321,13 +292,12 @@ def obter_perfil_usuario(user_id, email):
         supabase.table("perfis").insert({
             "user_id": user_id, 
             "email": email, 
-            "role": role_atribuida,
-            "avatar_url": None
+            "role": role_atribuida
         }).execute()
     except Exception:
         pass
     
-    return role_atribuida, None
+    return role_atribuida
 
 def extrair_primeiro_nome(email):
     if not email or "@" not in email:
@@ -342,13 +312,10 @@ if "user" not in st.session_state:
     session = supabase.auth.get_session()
     if session:
         st.session_state.user = session.user
-        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
+        st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
     else:
         st.session_state.user = None
         st.session_state.user_role = "Visitante"
-        st.session_state.user_avatar = None
 
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -357,9 +324,7 @@ def fazer_login(email, password):
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
-        role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
+        st.session_state.user_role = obter_perfil_usuario(response.user.id, response.user.email)
         st.session_state.favoritos = []
         st.toast("Login realizado com sucesso!", icon="✅")
         st.rerun()
@@ -373,7 +338,6 @@ def fazer_logout():
         pass
     st.session_state.user = None
     st.session_state.user_role = "Visitante"
-    st.session_state.user_avatar = None
     st.session_state.favoritos = []
     st.rerun()
 
@@ -404,12 +368,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
@@ -428,47 +392,11 @@ with col_header_right:
     if st.session_state.user:
         role_badge = f"🛡️ **{st.session_state.user_role}**"
         primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-        avatar_url = st.session_state.get("user_avatar", None)
-        
-        col_av, col_txt = st.columns([1, 3])
-        with col_av:
-            if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
-                try:
-                    st.image(avatar_url, width=40)
-                except Exception:
-                    st.markdown("👤")
-            else:
-                st.markdown("👤")
-        with col_txt:
-            st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
+        st.markdown(f"👤 **{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
     else:
         st.markdown("🌐 **Modo Público (Visitante)**<br>Visualização livre sem restrições", unsafe_allow_html=True)
 
 st.markdown("---")
-
-if st.session_state.user:
-    with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
-        col_up1, col_up2 = st.columns([2, 1])
-        with col_up1:
-            novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
-        with col_up2:
-            st.write("")
-            st.write("")
-            if st.button("💾 Atualizar Perfil"):
-                if novo_arquivo_avatar:
-                    url_gerada = upload_avatar(novo_arquivo_avatar, st.session_state.user.id)
-                    if url_gerada:
-                        try:
-                            supabase.table("perfis").update({"avatar_url": url_gerada}).eq("user_id", st.session_state.user.id).execute()
-                        except Exception:
-                            pass
-                        st.session_state.user_avatar = url_gerada
-                        st.toast("Foto de perfil alterada com sucesso!", icon="✅")
-                        st.rerun()
-                    else:
-                        st.error("Falha ao enviar a imagem.")
-                else:
-                    st.warning("Selecione um arquivo de imagem primeiro.")
 
 try:
     df_ocorrencias = buscar_ocorrencias_db()
@@ -482,7 +410,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
 # Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
-    abas_navegacao.append("🤖 Assistente IA")
+    abas_navegacao.append("📥 Exportar Banco (TXT)")
     abas_navegacao.append("📜 Audit Log (Gestão)")
 
 tabs = st.tabs(abas_navegacao)
@@ -762,75 +690,33 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 4: ASSISTENTE IA (EXCLUSIVO ADMIN)
+# ABA 4: EXPORTAR BANCO EM TXT (EXCLUSIVO ADMIN)
 # ==========================================
-if st.session_state.user_role == "Admin" and "🤖 Assistente IA" in abas_navegacao:
-    indice_ia = abas_navegacao.index("🤖 Assistente IA")
-    with tabs[indice_ia]:
-        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
-        st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
+if st.session_state.user_role == "Admin" and "📥 Exportar Banco (TXT)" in abas_navegacao:
+    indice_export = abas_navegacao.index("📥 Exportar Banco (TXT)")
+    with tabs[indice_export]:
+        st.subheader("📥 Exportar Base de Conhecimento (.TXT)")
+        st.caption("Baixe todo o histórico do banco de dados contendo sistema, tipo de catraca, problema, motivo e solução para enviar a outras IAs.")
         
-        pergunta_tecnico = st.text_area(
-            "Descreva detalhadamente o sintoma do problema:", 
-            placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
-        )
-        
-        if st.button("🔍 Gerar Diagnóstico com IA"):
-            if not pergunta_tecnico.strip():
-                st.warning("Por favor, descreva o problema antes de consultar a IA.")
-            elif df_ocorrencias.empty:
-                st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
-            elif "OPENAI_API_KEY" not in st.secrets:
-                st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
-            else:
-                with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
-                    try:
-                        contexto_base = ""
-                        for _, row in df_ocorrencias.iterrows():
-                            contexto_base += f"""
-                            - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
-                              Problema: {row.get('problema')}
-                              Causa Raiz: {row.get('motivo')}
-                              Solução Aplicada: {row.get('solucao')}
-                            ------------------------------------
-                            """
-
-                        prompt_sistema = f"""
-                        Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
-                        Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
-
-                        Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
-                        {contexto_base}
-
-                        Diretrizes para a sua resposta:
-                        1. Analise o relato do técnico.
-                        2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
-                        3. Forneça uma resposta estruturada contendo:
-                           - **Causas Prováveis**
-                           - **Passo a Passo de Investigação**
-                           - **Recomendações/Ações Imediatas**
-                        4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
-                        5. Mantenha um tom profissional, direto e técnico.
-                        """
-
-                        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[
-                                {"role": "system", "content": prompt_sistema},
-                                {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
-                            ],
-                            temperature=0.3
-                        )
-
-                        diagnostico_ia = response.choices[0].message.content
-
-                        st.markdown("---")
-                        st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
-                        st.info(diagnostico_ia)
-
-                    except Exception as e:
-                        st.error(f"Erro ao processar chamada na IA: {e}")
+        if df_ocorrencias.empty:
+            st.info("O banco de dados de ocorrências está vazio.")
+        else:
+            conteudo_txt = ""
+            for _, row in df_ocorrencias.iterrows():
+                conteudo_txt += f"=== OCORRÊNCIA ID #{row.get('id')} ===\n"
+                conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
+                conteudo_txt += f"Tipo de Catraca / Hardware: {row.get('equipamento', 'N/A')}\n"
+                conteudo_txt += f"Problema (Sintoma): {row.get('problema', 'N/A')}\n"
+                conteudo_txt += f"Motivo (Causa Raiz): {row.get('motivo', 'N/A')}\n"
+                conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
+                conteudo_txt += "-" * 50 + "\n\n"
+                
+            st.download_button(
+                label="📥 Baixar Banco de Dados Completo em TXT",
+                data=conteudo_txt,
+                file_name="base_conhecimento_actuar.txt",
+                mime="text/plain"
+            )
 
 # ==========================================
 # ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
