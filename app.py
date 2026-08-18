@@ -6,7 +6,7 @@ import os
 import time
 
 # ==========================================
-# 1. CONFIGURAÇÃO E DESIGN SYSTEM
+# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO)
 # ==========================================
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
@@ -16,22 +16,70 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0e1117; }
+    /* Fundo Principal em Gradiente Escuro */
+    .stApp { 
+        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); 
+        color: #c9d1d9;
+    }
+    
+    /* Cards de Métricas e KPIs com efeito Glassmorphism */
+    [data-testid="stMetric"] {
+        background: rgba(22, 27, 34, 0.75);
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(8px);
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        border-color: #58a6ff;
+        transform: translateY(-2px);
+    }
+    
+    /* Botões Customizados */
     .stButton>button {
         border-radius: 8px;
         border: 1px solid #30363d;
         background-color: #21262d;
         color: #c9d1d9;
+        font-weight: 500;
         transition: all 0.2s;
     }
     .stButton>button:hover {
         border-color: #58a6ff;
         color: #58a6ff;
+        background-color: #30363d;
+        box-shadow: 0 0 10px rgba(88, 166, 255, 0.2);
     }
+    
+    /* Expanders / Acordeões */
     .streamlit-expanderHeader {
+        background-color: #161b22 !important;
+        border-radius: 8px !important;
+        border: 1px solid #30363d !important;
+    }
+    .streamlit-expanderHeader:hover {
+        border-color: #58a6ff !important;
+    }
+    
+    /* Estilização das Abas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 1px solid #30363d;
+    }
+    .stTabs [data-baseweb="tab"] {
         background-color: #161b22;
-        border-radius: 8px;
+        border-radius: 8px 8px 0px 0px;
         border: 1px solid #30363d;
+        border-bottom: none;
+        padding: 8px 16px;
+        color: #8b949e;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #21262d !important;
+        color: #58a6ff !important;
+        border-top: 2px solid #58a6ff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -427,7 +475,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC (CORES DIFERENCIADAS)
+# ABA 3: DASHBOARD EXEC (DESIGN TRANSPARENTE E COLORIDO)
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -456,7 +504,12 @@ with tabs[2]:
                 labels={'count': 'Ocorrências', 'equipamento': 'Hardware'},
                 color_discrete_sequence=px.colors.qualitative.Bold
             )
-            fig_hw.update_layout(showlegend=False)
+            fig_hw.update_layout(
+                showlegend=False,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_color='#c9d1d9'
+            )
             st.plotly_chart(fig_hw, use_container_width=True)
             
         with g2:
@@ -466,6 +519,11 @@ with tabs[2]:
                 title="<b>Distribuição por Sistema (Software)</b>",
                 hole=0.4,
                 color_discrete_sequence=px.colors.qualitative.Safe
+            )
+            fig_sist.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_color='#c9d1d9'
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
