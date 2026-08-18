@@ -352,7 +352,6 @@ def upload_anexo(file):
             
         url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
         
-        # Tratamento robusto: garante que a URL seja extraída corretamente se retornar dict ou string
         if isinstance(url_res, dict):
             return url_res.get("publicUrl") or url_res.get("public_url") or str(url_res)
         return str(url_res) if url_res else None
@@ -457,12 +456,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
