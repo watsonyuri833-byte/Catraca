@@ -162,40 +162,54 @@ def processar_importacao_txt(file_bytes, usuario_email):
         except Exception:
             texto = file_bytes.decode("latin-1")
             
-        blocos = texto.split("=== OCORRÊNCIA")
+        blocos = texto.split("Erro:")
         importadas = 0
         
         for bloco in blocos:
             if not bloco.strip():
                 continue
             
-            linhas = bloco.split("\n")
+            linhas = bloco.strip().split("\n")
+            problema = linhas[0].strip()
+            
             sistema = "Não se aplica / Geral"
             equipamento = "Outro Hardware"
-            problema = ""
-            motivo = ""
-            solucao = ""
+            motivo_partes = []
+            solucoes = []
             
-            for linha in linhas:
+            for linha in linhas[1:]:
                 l = linha.strip()
+                if not l:
+                    continue
+                
                 if l.startswith("Sistema:"):
-                    sistema = l.replace("Sistema:", "").strip()
-                elif l.startswith("Tipo de Catraca / Hardware:") or l.startswith("Equipamento:"):
-                    equipamento = l.split(":", 1)[1].strip()
-                elif l.startswith("Problema (Sintoma):") or l.startswith("Problema:"):
-                    problema = l.split(":", 1)[1].strip()
-                elif l.startswith("Motivo (Causa Raiz):") or l.startswith("Motivo:"):
-                    motivo = l.split(":", 1)[1].strip()
-                elif l.startswith("Solução:") or l.startswith("Solução Recomendada:"):
-                    solucao = l.split(":", 1)[1].strip()
+                    l_lower = l.lower()
+                    if "[x] ambos" in l_lower:
+                        sistema = "Outro Sistema"
+                    elif "[x] legado" in l_lower:
+                        sistema = "Legado(Acesso)"
+                    elif "[x] the new" in l_lower or "[x] edge" in l_lower:
+                        sistema = "The new(Edge)"
+                elif l.startswith("Onde ocorre:") or l.startswith("Como ocorre:") or l.startswith("Causa"):
+                    motivo_partes.append(l)
+                elif l.startswith("Solução:"):
+                    s_limpa = l.replace("Solução:", "").strip()
+                    if s_limpa.startswith("[") and s_limpa.endswith("]"):
+                        s_limpa = s_limpa[1:-1].strip()
+                    solucoes.append(s_limpa)
+                elif not l.startswith("Possíveis Causas"):
+                    motivo_partes.append(l)
                     
-            if problema or solucao:
+            if problema:
+                motivo_final = " | ".join(motivo_partes) if motivo_partes else "Não informado"
+                solucao_final = " | ".join(solucoes) if solucoes else "Não informada"
+                
                 dados = {
                     "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
-                    "equipamento": equipamento if equipamento in LISTA_HARDWARE else "Outro Hardware",
-                    "problema": problema or "Ocorrência importada via TXT",
-                    "motivo": motivo or "Não informado",
-                    "solucao": solucao or "Não informada",
+                    "equipamento": "Outro Hardware",
+                    "problema": problema,
+                    "motivo": motivo_final,
+                    "solucao": solucao_final,
                     "status": "🟢 Solução Definitiva",
                     "nivel": "N1 - Fácil / Rápido",
                     "tempo_estimado": "15 minutos"
@@ -458,7 +472,7 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "autor_email"]:
+for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
@@ -518,13 +532,10 @@ with tabs[0]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            email_autor = row.get('autor_email', None)
-            nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
-            
             is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
-            titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
+            titulo_card = f"[{status}] {sist} + {hw} — {prob}"
             
             with st.expander(titulo_card):
                 if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
@@ -702,7 +713,7 @@ with tabs[1]:
                         pass
 
 # ==========================================
-# ABA 3: CADASTRO COM ANEXO E AUTOR
+# ABA 3: CADASTRO COM ANEXO
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -775,11 +786,9 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
         else:
             conteudo_txt = ""
             for _, row in df_ocorrencias.iterrows():
-                conteudo_txt += f"=== OCORRÊNCIA ID #{row.get('id')} ===\n"
+                conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
                 conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
-                conteudo_txt += f"Tipo de Catraca / Hardware: {row.get('equipamento', 'N/A')}\n"
-                conteudo_txt += f"Problema (Sintoma): {row.get('problema', 'N/A')}\n"
-                conteudo_txt += f"Motivo (Causa Raiz): {row.get('motivo', 'N/A')}\n"
+                conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
                 conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
                 conteudo_txt += "-" * 50 + "\n\n"
                 
