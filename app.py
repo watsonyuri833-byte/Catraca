@@ -127,27 +127,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS (SEM CACHE GLOBAL PARA ISOLAR SESSÕES)
+# 2. CONEXÃO E BANCO DE DADOS
 # ==========================================
+@st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
 supabase = init_supabase()
-
-def limpar_votos_negativos_id_5():
-    try:
-        # Remove APENAS os registros de votos negativos/comentários de teste da ocorrência #5
-        supabase.table("comentarios").delete().eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
-        res_neg = supabase.table("comentarios").select("*").eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
-        total_neg = len(res_neg.data) if res_neg.data else 0
-        supabase.table("ocorrencias").update({"votos_neg": total_neg}).eq("id", 5).execute()
-    except Exception:
-        pass
-
-# Executa apenas a limpeza dos votos de teste da ID 5 (a ocorrência em si permanece intacta)
-limpar_votos_negativos_id_5()
 
 def buscar_ocorrencias_db():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -322,7 +310,7 @@ def extrair_primeiro_nome(email):
 # ==========================================
 if "user" not in st.session_state:
     session = supabase.auth.get_session()
-    if session and session.user:
+    if session:
         st.session_state.user = session.user
         st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
     else:
@@ -419,6 +407,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
+# Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Exportar Banco (TXT)")
