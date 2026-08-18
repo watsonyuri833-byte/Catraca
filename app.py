@@ -6,7 +6,7 @@ import os
 import time
 
 # ==========================================
-# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO)
+# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK)
 # ==========================================
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
@@ -22,7 +22,49 @@ st.markdown("""
         color: #c9d1d9;
     }
     
-    /* Cards de Métricas e KPIs com efeito Glassmorphism */
+    /* Textos Globais, Rótulos (Labels) e Títulos */
+    .stApp p, .stApp label, .stApp span, h1, h2, h3, h4, h5, h6 {
+        color: #e6edf3 !important;
+    }
+    
+    /* Corrigir Campos de Texto, Inputs, Selects e Textareas para Dark */
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="select"] > div,
+    textarea {
+        background-color: #161b22 !important;
+        color: #f0f6fc !important;
+        border: 1px solid #30363d !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Foco nos Campos de Entrada (Hover / Active) */
+    div[data-baseweb="input"] > div:focus-within,
+    div[data-baseweb="select"] > div:focus-within,
+    textarea:focus {
+        border-color: #58a6ff !important;
+        box-shadow: 0 0 0 1px #58a6ff !important;
+    }
+
+    /* Cor do texto interno digitado e dos seletores */
+    input, select, textarea {
+        color: #f0f6fc !important;
+    }
+    
+    /* Cor dos Placeholders (Texto de exemplo antes de digitar) */
+    ::placeholder {
+        color: #8b949e !important;
+        opacity: 1;
+    }
+
+    /* Área de Upload de Arquivos (File Uploader) */
+    [data-testid="stFileUploader"] {
+        background-color: #161b22 !important;
+        border: 1px dashed #30363d !important;
+        border-radius: 8px !important;
+        padding: 10px;
+    }
+
+    /* Cards de Métricas e KPIs */
     [data-testid="stMetric"] {
         background: rgba(22, 27, 34, 0.75);
         border: 1px solid #30363d;
@@ -30,11 +72,6 @@ st.markdown("""
         padding: 16px 20px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         backdrop-filter: blur(8px);
-        transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    [data-testid="stMetric"]:hover {
-        border-color: #58a6ff;
-        transform: translateY(-2px);
     }
     
     /* Botões Customizados */
@@ -42,13 +79,13 @@ st.markdown("""
         border-radius: 8px;
         border: 1px solid #30363d;
         background-color: #21262d;
-        color: #c9d1d9;
+        color: #c9d1d9 !important;
         font-weight: 500;
         transition: all 0.2s;
     }
     .stButton>button:hover {
         border-color: #58a6ff;
-        color: #58a6ff;
+        color: #58a6ff !important;
         background-color: #30363d;
         box-shadow: 0 0 10px rgba(88, 166, 255, 0.2);
     }
@@ -58,9 +95,7 @@ st.markdown("""
         background-color: #161b22 !important;
         border-radius: 8px !important;
         border: 1px solid #30363d !important;
-    }
-    .streamlit-expanderHeader:hover {
-        border-color: #58a6ff !important;
+        color: #e6edf3 !important;
     }
     
     /* Estilização das Abas */
@@ -74,7 +109,7 @@ st.markdown("""
         border: 1px solid #30363d;
         border-bottom: none;
         padding: 8px 16px;
-        color: #8b949e;
+        color: #8b949e !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #21262d !important;
@@ -372,7 +407,7 @@ with tabs[0]:
                             st.rerun()
 
                 # ==========================================
-                # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN / VOCÊ)
+                # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN)
                 # ==========================================
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
