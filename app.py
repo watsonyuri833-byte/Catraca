@@ -6,7 +6,7 @@ import os
 import time
 
 # ==========================================
-# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK)
+# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
 # ==========================================
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
@@ -18,8 +18,8 @@ st.markdown("""
 <style>
     /* Fundo Principal em Gradiente Escuro */
     .stApp { 
-        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); 
-        color: #c9d1d9;
+        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important; 
+        color: #c9d1d9 !important;
     }
     
     /* Textos Globais, Rótulos (Labels) e Títulos */
@@ -27,33 +27,50 @@ st.markdown("""
         color: #e6edf3 !important;
     }
     
-    /* Corrigir Campos de Texto, Inputs, Selects e Textareas para Dark */
+    /* CORREÇÃO DEFINITIVA DOS CAMPOS DE INPUT, SELECTBOX E TEXTAREA */
+    div[data-baseweb="input"],
     div[data-baseweb="input"] > div,
+    div[data-baseweb="select"],
     div[data-baseweb="select"] > div,
-    textarea {
+    div[data-baseweb="select"] * {
         background-color: #161b22 !important;
         color: #f0f6fc !important;
+    }
+
+    /* Input interno de texto e select */
+    .stApp input, 
+    .stApp textarea, 
+    .stApp select,
+    div[role="combobox"] {
+        background-color: #161b22 !important;
+        color: #f0f6fc !important;
+        border-color: #30363d !important;
+    }
+
+    /* Borda e Container das Caixas de Texto */
+    div[data-baseweb="input"], div[data-baseweb="select"] {
         border: 1px solid #30363d !important;
         border-radius: 8px !important;
     }
     
     /* Foco nos Campos de Entrada (Hover / Active) */
-    div[data-baseweb="input"] > div:focus-within,
-    div[data-baseweb="select"] > div:focus-within,
+    div[data-baseweb="input"]:focus-within,
+    div[data-baseweb="select"]:focus-within,
     textarea:focus {
         border-color: #58a6ff !important;
         box-shadow: 0 0 0 1px #58a6ff !important;
     }
 
-    /* Cor do texto interno digitado e dos seletores */
-    input, select, textarea {
-        color: #f0f6fc !important;
-    }
-    
-    /* Cor dos Placeholders (Texto de exemplo antes de digitar) */
-    ::placeholder {
+    /* Cor dos Placeholders (Texto de exemplo) */
+    ::placeholder, input::placeholder, textarea::placeholder {
         color: #8b949e !important;
-        opacity: 1;
+        opacity: 1 !important;
+    }
+
+    /* Menus Suspensos / Dropdowns Abertos */
+    ul[role="listbox"], ul[role="listbox"] li {
+        background-color: #161b22 !important;
+        color: #f0f6fc !important;
     }
 
     /* Área de Upload de Arquivos (File Uploader) */
@@ -66,28 +83,28 @@ st.markdown("""
 
     /* Cards de Métricas e KPIs */
     [data-testid="stMetric"] {
-        background: rgba(22, 27, 34, 0.75);
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        background: rgba(22, 27, 34, 0.75) !important;
+        border: 1px solid #30363d !important;
+        border-radius: 12px !important;
+        padding: 16px 20px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
         backdrop-filter: blur(8px);
     }
     
     /* Botões Customizados */
     .stButton>button {
-        border-radius: 8px;
-        border: 1px solid #30363d;
-        background-color: #21262d;
+        border-radius: 8px !important;
+        border: 1px solid #30363d !important;
+        background-color: #21262d !important;
         color: #c9d1d9 !important;
-        font-weight: 500;
-        transition: all 0.2s;
+        font-weight: 500 !important;
+        transition: all 0.2s !important;
     }
     .stButton>button:hover {
-        border-color: #58a6ff;
+        border-color: #58a6ff !important;
         color: #58a6ff !important;
-        background-color: #30363d;
-        box-shadow: 0 0 10px rgba(88, 166, 255, 0.2);
+        background-color: #30363d !important;
+        box-shadow: 0 0 10px rgba(88, 166, 255, 0.2) !important;
     }
     
     /* Expanders / Acordeões */
@@ -104,11 +121,11 @@ st.markdown("""
         border-bottom: 1px solid #30363d;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #161b22;
-        border-radius: 8px 8px 0px 0px;
-        border: 1px solid #30363d;
-        border-bottom: none;
-        padding: 8px 16px;
+        background-color: #161b22 !important;
+        border-radius: 8px 8px 0px 0px !important;
+        border: 1px solid #30363d !important;
+        border-bottom: none !important;
+        padding: 8px 16px !important;
         color: #8b949e !important;
     }
     .stTabs [aria-selected="true"] {
