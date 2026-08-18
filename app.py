@@ -168,6 +168,10 @@ def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
+        try:
+            supabase.table("votos").delete().eq("ocorrencia_id", ocorrencia_id).execute()
+        except Exception:
+            pass
         res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
         
         if res.data and len(res.data) > 0:
@@ -181,10 +185,43 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
         st.error(f"Erro ao excluir no Supabase: {e}")
         return False
 
-def computar_voto(ocorrencia_id, tipo_voto, valor_atual):
-    coluna = "votos_pos" if tipo_voto == "pos" else "votos_neg"
-    novo_valor = int(valor_atual) + 1
-    supabase.table("ocorrencias").update({coluna: novo_valor}).eq("id", ocorrencia_id).execute()
+def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
+    try:
+        res = supabase.table("votos").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+        voto_existente = res.data
+        
+        res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
+        if not res_ocor.data:
+            return
+        v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
+        v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
+        
+        if not voto_existente:
+            supabase.table("votos").insert({"ocorrencia_id": ocorrencia_id, "usuario": usuario_email, "tipo": tipo_voto}).execute()
+            if tipo_voto == "pos":
+                v_pos += 1
+            else:
+                v_neg += 1
+        else:
+            tipo_atual = voto_existente[0]["tipo"]
+            if tipo_atual == tipo_voto:
+                supabase.table("votos").delete().eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+                if tipo_voto == "pos":
+                    v_pos = max(0, v_pos - 1)
+                else:
+                    v_neg = max(0, v_neg - 1)
+            else:
+                supabase.table("votos").update({"tipo": tipo_voto}).eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+                if tipo_voto == "pos":
+                    v_pos += 1
+                    v_neg = max(0, v_neg - 1)
+                else:
+                    v_neg += 1
+                    v_pos = max(0, v_pos - 1)
+                    
+        supabase.table("ocorrencias").update({"votos_pos": v_pos, "votos_neg": v_neg}).eq("id", ocorrencia_id).execute()
+    except Exception as e:
+        st.error(f"Erro ao gerenciar voto. Verifique se a tabela 'votos' existe no Supabase: {e}")
 
 def buscar_comentarios(ocorrencia_id):
     res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
@@ -345,12 +382,12 @@ if st.session_state.user is None:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
@@ -513,15 +550,27 @@ with tabs[0]:
                 st.markdown("---")
                 v_pos = row.get('votos_pos', 0) or 0
                 v_neg = row.get('votos_neg', 0) or 0
-                col_v1, col_v2, col_space = st.columns([1, 1, 4])
                 
+                # Verificar se o usuário logado já votou nesta ocorrência
+                user_voto = None
+                try:
+                    res_voto = supabase.table("votos").select("tipo").eq("ocorrencia_id", ocor_id).eq("usuario", st.session_state.user.email).execute()
+                    if res_voto.data:
+                        user_voto = res_voto.data[0]["tipo"]
+                except Exception:
+                    pass
+
+                texto_pos = f"👍 Funcionou ({v_pos})" + (" ✅" if user_voto == "pos" else "")
+                texto_neg = f"👎 Não funcionou ({v_neg})" + (" ✅" if user_voto == "neg" else "")
+
+                col_v1, col_v2, col_space = st.columns([1, 1, 4])
                 with col_v1:
-                    if st.button(f"👍 Funcionou ({v_pos})", key=f"pos_{ocor_id}"):
-                        computar_voto(ocor_id, "pos", v_pos)
+                    if st.button(texto_pos, key=f"pos_{ocor_id}"):
+                        gerenciar_voto(ocor_id, "pos", st.session_state.user.email)
                         st.rerun()
                 with col_v2:
-                    if st.button(f"👎 Não funcionou ({v_neg})", key=f"neg_{ocor_id}"):
-                        computar_voto(ocor_id, "neg", v_neg)
+                    if st.button(texto_neg, key=f"neg_{ocor_id}"):
+                        gerenciar_voto(ocor_id, "neg", st.session_state.user.email)
                         st.rerun()
 
                 st.markdown("**💬 Observações dos Analistas:**")
