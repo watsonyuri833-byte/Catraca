@@ -47,8 +47,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-@st.cache_data(ttl=5)
-def buscar_ocorrencias_cached():
+def buscar_ocorrencias_db():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(res.data)
 
@@ -65,27 +64,24 @@ def registrar_log(usuario_email, acao, detalhes):
 def salvar_ocorrencia_db(dados, usuario_email):
     supabase.table("ocorrencias").insert(dados).execute()
     registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
-    st.cache_data.clear()
 
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
-        # 1. Deleta comentários vinculados primeiro (evita erro de chave estrangeira)
+        # 1. Deleta registros dependentes na tabela de comentários
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        # 2. Deleta a ocorrência principal
+        # 2. Deleta o registro principal
         supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-        # 3. Log e Limpeza de cache imediata
+        # 3. Registra log de auditoria
         registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
-        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Erro ao excluir no banco: {e}")
+        st.error(f"Erro no banco ao excluir: {e}")
         return False
 
 def computar_voto(ocorrencia_id, tipo_voto, valor_atual):
     coluna = "votos_pos" if tipo_voto == "pos" else "votos_neg"
     novo_valor = int(valor_atual) + 1
     supabase.table("ocorrencias").update({coluna: novo_valor}).eq("id", ocorrencia_id).execute()
-    st.cache_data.clear()
 
 def buscar_comentarios(ocorrencia_id):
     res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
@@ -141,7 +137,6 @@ def obter_perfil_usuario(user_id, email):
 # ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
 # ==========================================
-# Recupera a sessão ativa do Supabase para não perder o login no F5
 if "user" not in st.session_state or st.session_state.user is None:
     session = supabase.auth.get_session()
     if session:
@@ -165,7 +160,6 @@ def fazer_logout():
     supabase.auth.sign_out()
     st.session_state.user = None
     st.session_state.user_role = "Analista"
-    st.cache_data.clear()
     st.rerun()
 
 # --- TELA DE LOGIN ---
@@ -218,7 +212,7 @@ with col_user:
 st.markdown("---")
 
 try:
-    df_ocorrencias = buscar_ocorrencias_cached()
+    df_ocorrencias = buscar_ocorrencias_db()
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
@@ -265,7 +259,7 @@ with tabs[0]:
         st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
     else:
         for _, row in df_filtered.iterrows():
-            ocor_id = row['id']
+            ocor_id = int(row['id'])
             sist = row.get('sistema', 'N/A')
             hw = row.get('equipamento', 'N/A')
             prob = row.get('problema', 'Sem descrição')
@@ -314,12 +308,13 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                if st.session_state.user_role == "Admin":
-                    st.markdown("---")
-                    if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"del_{ocor_id}"):
-                        if deletar_ocorrencia_db(ocor_id, st.session_state.user.email):
-                            st.toast(f"Tratativa #{ocor_id} excluída!", icon="🗑️")
-                            st.rerun()
+                # Botão fora de forms para evitar concorrência
+                st.markdown("---")
+                if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
+                    sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
+                    if sucesso:
+                        st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
+                        st.rerun()
 
 # ==========================================
 # ABA 2: CADASTRO COM ANEXO
@@ -423,7 +418,7 @@ with tabs[3]:
             st.warning("Nenhum procedimento exato encontrado para essa busca.")
 
 # ==========================================
-# ABA 5: AUDIT LOG (EXCLUSIVO GESTOR/ADMIN)
+# ABA 5: AUDIT LOG
 # ==========================================
 if st.session_state.user_role == "Admin" and len(tabs) > 4:
     with tabs[4]:
