@@ -543,20 +543,22 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC
+# ABA 3: DASHBOARD EXECUTIVO (REMODELADO PARA MEMÓRIA DE CASOS ESPORÁDICOS)
 # ==========================================
 with tabs[2]:
-    st.subheader("📊 Indicadores da Central Técnica")
+    st.subheader("📊 Painel de Memória de Diagnósticos")
+    st.caption("Visão geral dos registros atípicos salvos para consulta rápida e combate ao esquecimento.")
+    
     if df_ocorrencias.empty:
-        st.info("Cadastre dados para gerar os gráficos.")
+        st.info("Cadastre algumas ocorrências para visualizar os indicadores da base de conhecimento.")
     else:
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Total Mapeado", len(df_ocorrencias))
-        kpi2.metric("Hardware + Instável", df_ocorrencias["equipamento"].mode()[0] if not df_ocorrencias.empty else "N/A")
-        kpi3.metric("Sistema + Citado", df_ocorrencias["sistema"].mode()[0] if not df_ocorrencias.empty else "N/A")
+        kpi1.metric("Casos Documentados", len(df_ocorrencias))
+        kpi2.metric("Sistema + Registrado", df_ocorrencias["sistema"].mode()[0] if not df_ocorrencias.empty else "N/A")
+        kpi3.metric("Contexto + Frequente", df_ocorrencias["equipamento"].mode()[0] if not df_ocorrencias.empty else "N/A")
         
         n1_count = len(df_ocorrencias[df_ocorrencias["nivel"].str.contains("N1", na=False)])
-        kpi4.metric("Resolvidos em N1", f"{(n1_count/len(df_ocorrencias))*100:.0f}%" if len(df_ocorrencias) > 0 else "0%")
+        kpi4.metric("Soluções Nível N1", f"{(n1_count/len(df_ocorrencias))*100:.0f}%" if len(df_ocorrencias) > 0 else "0%")
         
         st.markdown("---")
         g1, g2 = st.columns(2)
@@ -564,7 +566,7 @@ with tabs[2]:
         CORES_NEON = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4']
         
         with g1:
-            st.markdown("### Top Equipamentos com Falhas")
+            st.markdown("### 🏷️ Ocorrências por Contexto / Local")
             df_hw = df_ocorrencias['equipamento'].value_counts().reset_index()
             df_hw.columns = ['equipamento', 'count']
             
@@ -596,7 +598,7 @@ with tabs[2]:
             st.plotly_chart(fig_hw, use_container_width=True)
             
         with g2:
-            st.markdown("### Distribuição por Sistema")
+            st.markdown("### 💻 Distribuição por Sistema")
             df_sist = df_ocorrencias['sistema'].value_counts().reset_index()
             df_sist.columns = ['sistema', 'count']
             
@@ -624,7 +626,7 @@ with tabs[2]:
         g3, g4 = st.columns(2)
 
         with g3:
-            st.markdown("### 📌 Distribuição por Status das Tratativas")
+            st.markdown("### 📌 Status das Soluções Registradas")
             df_status = df_ocorrencias['status'].value_counts().reset_index()
             df_status.columns = ['status', 'count']
 
@@ -649,7 +651,7 @@ with tabs[2]:
             st.plotly_chart(fig_status, use_container_width=True)
 
         with g4:
-            st.markdown("### 🔍 Top Motivos / Causas Raiz")
+            st.markdown("### 🔍 Causas Raiz Mais Frequentes")
             if 'motivo' in df_ocorrencias.columns:
                 df_motivos = df_ocorrencias['motivo'].fillna('Não especificado').value_counts().reset_index()
                 df_motivos.columns = ['motivo', 'count']
