@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from supabase import create_client, Client
 import os
 import time
@@ -80,16 +79,6 @@ st.markdown("""
         border: 1px dashed #30363d !important;
         border-radius: 8px !important;
         padding: 10px;
-    }
-
-    /* Cards de Métricas e KPIs */
-    [data-testid="stMetric"] {
-        background: rgba(22, 27, 34, 0.75) !important;
-        border: 1px solid #30363d !important;
-        border-radius: 12px !important;
-        padding: 16px 20px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-        backdrop-filter: blur(8px);
     }
     
     /* Botões Customizados */
@@ -247,31 +236,6 @@ def upload_anexo(file):
         st.error(f"Erro no upload da imagem: {e}")
         return None
 
-def upload_avatar(file, user_id):
-    try:
-        ext = file.name.split('.')[-1]
-        file_name = f"avatar_{user_id}_{int(time.time())}.{ext}"
-        file_bytes = file.getvalue()
-        
-        try:
-            supabase.storage.create_bucket("avatares", {"public": True})
-        except Exception:
-            pass
-            
-        try:
-            supabase.storage.from_("avatares").upload(
-                path=file_name,
-                file=file_bytes,
-                file_options={"content-type": file.type, "upsert": "true"}
-            )
-        except Exception:
-            pass
-                
-        res = supabase.storage.from_("avatares").get_public_url(file_name)
-        return extrair_url_publica(res)
-    except Exception as e:
-        return upload_anexo(file)
-
 EMAILS_GESTORES = ["watson@actuar.group"]
 
 def obter_perfil_usuario(user_id, email):
@@ -281,11 +245,11 @@ def obter_perfil_usuario(user_id, email):
         role_atribuida = "Analista"
         
     try:
-        res = supabase.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
+        res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
         if res.data:
             if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
                 supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
-            return role_atribuida, res.data[0].get("avatar_url")
+            return role_atribuida
     except Exception:
         pass
     
@@ -293,13 +257,12 @@ def obter_perfil_usuario(user_id, email):
         supabase.table("perfis").insert({
             "user_id": user_id, 
             "email": email, 
-            "role": role_atribuida,
-            "avatar_url": None
+            "role": role_atribuida
         }).execute()
     except Exception:
         pass
     
-    return role_atribuida, None
+    return role_atribuida
 
 def extrair_primeiro_nome(email):
     if not email or "@" not in email:
@@ -314,21 +277,16 @@ if "user" not in st.session_state or st.session_state.user is None:
     session = supabase.auth.get_session()
     if session:
         st.session_state.user = session.user
-        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
+        st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
     else:
         st.session_state.user = None
         st.session_state.user_role = "Analista"
-        st.session_state.user_avatar = None
 
 def fazer_login(email, password):
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
-        role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
+        st.session_state.user_role = obter_perfil_usuario(response.user.id, response.user.email)
         st.toast("Login realizado com sucesso!", icon="✅")
         st.rerun()
     except Exception as e:
@@ -338,7 +296,6 @@ def fazer_logout():
     supabase.auth.sign_out()
     st.session_state.user = None
     st.session_state.user_role = "Analista"
-    st.session_state.user_avatar = None
     st.rerun()
 
 # --- TELA DE LOGIN ---
@@ -389,17 +346,10 @@ with col_header_left:
 with col_header_right:
     role_badge = f"🛡️ **{st.session_state.user_role}**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    avatar_url = st.session_state.get("user_avatar", None)
     
     col_av, col_txt, col_btn = st.columns([1, 2, 1])
     with col_av:
-        if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
-            try:
-                st.image(str(avatar_url), width=40)
-            except Exception:
-                st.markdown("👤")
-        else:
-            st.markdown("👤")
+        st.markdown("👤")
     with col_txt:
         st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
     with col_btn:
@@ -407,29 +357,6 @@ with col_header_right:
             fazer_logout()
 
 st.markdown("---")
-
-with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
-    col_up1, col_up2 = st.columns([2, 1])
-    with col_up1:
-        novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
-    with col_up2:
-        st.write("")
-        st.write("")
-        if st.button("💾 Atualizar Perfil"):
-            if novo_arquivo_avatar:
-                url_gerada = upload_avatar(novo_arquivo_avatar, st.session_state.user.id)
-                if url_gerada:
-                    try:
-                        supabase.table("perfis").update({"avatar_url": url_gerada}).eq("user_id", st.session_state.user.id).execute()
-                    except Exception:
-                        pass
-                    st.session_state.user_avatar = url_gerada
-                    st.toast("Foto de perfil alterada com sucesso!", icon="✅")
-                    st.rerun()
-                else:
-                    st.error("Falha ao gerar a URL pública da imagem.")
-            else:
-                st.warning("Selecione um arquivo de imagem primeiro.")
 
 try:
     df_ocorrencias = buscar_ocorrencias_db()
@@ -440,7 +367,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo"]
+abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("🤖 Assistente IA")
     abas_navegacao.append("📜 Audit Log (Gestão)")
@@ -638,242 +565,9 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXECUTIVO
-# ==========================================
-with tabs[2]:
-    st.subheader("📊 Painel de Memória de Diagnósticos")
-    st.caption("Visão geral dos registros atípicos salvos para consulta rápida e combate ao esquecimento.")
-    
-    if df_ocorrencias.empty:
-        st.info("Cadastre algumas ocorrências para visualizar os indicadores da base de conhecimento.")
-    else:
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Casos Documentados", len(df_ocorrencias))
-        kpi2.metric("Sistema + Registrado", df_ocorrencias["sistema"].mode()[0] if not df_ocorrencias.empty else "N/A")
-        kpi3.metric("Contexto + Frequente", df_ocorrencias["equipamento"].mode()[0] if not df_ocorrencias.empty else "N/A")
-        
-        n1_count = len(df_ocorrencias[df_ocorrencias["nivel"].str.contains("N1", na=False)])
-        kpi4.metric("Soluções Nível N1", f"{(n1_count/len(df_ocorrencias))*100:.0f}%" if len(df_ocorrencias) > 0 else "0%")
-        
-        st.markdown("---")
-        g1, g2 = st.columns(2)
-        
-        CORES_NEON = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4']
-        
-        with g1:
-            st.markdown("### 🏷️ Ocorrências por Contexto / Local")
-            df_hw = df_ocorrencias['equipamento'].value_counts().reset_index()
-            df_hw.columns = ['equipamento', 'count']
-            
-            fig_hw = px.bar(
-                df_hw,
-                x='count', 
-                y='equipamento', 
-                color='equipamento',
-                orientation='h',
-                text='count',
-                color_discrete_sequence=CORES_NEON
-            )
-            fig_hw.update_traces(
-                textposition='outside', 
-                textfont=dict(color='#e6edf3', size=13), 
-                width=0.35,
-                marker=dict(line=dict(width=0))
-            )
-            fig_hw.update_layout(
-                showlegend=False, 
-                paper_bgcolor='rgba(0,0,0,0)', 
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9', family="Sans-Serif"), 
-                xaxis=dict(title="", showgrid=False, showticklabels=False, zeroline=False),
-                yaxis=dict(title="", showgrid=False, categoryorder="total ascending"), 
-                margin=dict(l=10, r=30, t=10, b=10),
-                height=300
-            )
-            st.plotly_chart(fig_hw, use_container_width=True)
-            
-        with g2:
-            st.markdown("### 💻 Distribuição por Sistema")
-            df_sist = df_ocorrencias['sistema'].value_counts().reset_index()
-            df_sist.columns = ['sistema', 'count']
-            
-            fig_sist = px.pie(
-                df_sist, names='sistema', values='count',
-                hole=0.65,
-                color_discrete_sequence=CORES_NEON
-            )
-            fig_sist.update_traces(
-                textinfo='percent+label', 
-                textfont=dict(color='#ffffff', size=12),
-                marker=dict(line=dict(color='#161b22', width=2))
-            )
-            fig_sist.update_layout(
-                showlegend=False, 
-                paper_bgcolor='rgba(0,0,0,0)', 
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9', family="Sans-Serif"), 
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=300
-            )
-            st.plotly_chart(fig_sist, use_container_width=True)
-
-        st.markdown("---")
-        g3, g4 = st.columns(2)
-
-        with g3:
-            st.markdown("### 📌 Status das Soluções Registradas")
-            df_status = df_ocorrencias['status'].value_counts().reset_index()
-            df_status.columns = ['status', 'count']
-
-            fig_status = px.pie(
-                df_status, names='status', values='count',
-                hole=0.65,
-                color_discrete_sequence=CORES_NEON
-            )
-            fig_status.update_traces(
-                textinfo='percent+label',
-                textfont=dict(color='#ffffff', size=12),
-                marker=dict(line=dict(color='#161b22', width=2))
-            )
-            fig_status.update_layout(
-                showlegend=False,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9', family="Sans-Serif"),
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=300
-            )
-            st.plotly_chart(fig_status, use_container_width=True)
-
-        with g4:
-            st.markdown("### 🔍 Causas Raiz Mais Frequentes")
-            if 'motivo' in df_ocorrencias.columns:
-                df_motivos = df_ocorrencias['motivo'].fillna('Não especificado').value_counts().reset_index()
-                df_motivos.columns = ['motivo', 'count']
-                df_motivos = df_motivos.head(5)
-
-                fig_motivo = px.bar(
-                    df_motivos,
-                    x='count',
-                    y='motivo',
-                    orientation='h',
-                    text='count',
-                    color_discrete_sequence=['#10B981']
-                )
-                fig_motivo.update_traces(
-                    textposition='outside',
-                    textfont=dict(color='#e6edf3', size=12),
-                    width=0.35,
-                    marker=dict(line=dict(width=0))
-                )
-                fig_motivo.update_layout(
-                    showlegend=False,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#c9d1d9', family="Sans-Serif"),
-                    xaxis=dict(title="", showgrid=False, showticklabels=False, zeroline=False),
-                    yaxis=dict(title="", showgrid=False, categoryorder="total ascending"),
-                    margin=dict(l=10, r=30, t=10, b=10),
-                    height=300
-                )
-                st.plotly_chart(fig_motivo, use_container_width=True)
-            else:
-                st.info("Sem dados suficientes para os motivos.")
-
-# ==========================================
-# ABA 4: ASSISTENTE IA (EXCLUSIVO ADMIN)
+# ABA 3: ASSISTENTE IA (EXCLUSIVO ADMIN)
 # ==========================================
 if st.session_state.user_role == "Admin":
-    with tabs[3]:
-        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
-        st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
-        
-        pergunta_tecnico = st.text_area(
-            "Descreva detalhadamente o sintoma do problema:", 
-            placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
-        )
-        
-        if st.button("🔍 Gerar Diagnóstico com IA"):
-            if not pergunta_tecnico.strip():
-                st.warning("Por favor, descreva o problema antes de consultar a IA.")
-            elif df_ocorrencias.empty:
-                st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
-            elif "OPENAI_API_KEY" not in st.secrets:
-                st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
-            else:
-                with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
-                    try:
-                        contexto_base = ""
-                        for _, row in df_ocorrencias.iterrows():
-                            contexto_base += f"""
-                            - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
-                              Problema: {row.get('problema')}
-                              Causa Raiz: {row.get('motivo')}
-                              Solução Aplicada: {row.get('solucao')}
-                            ------------------------------------
-                            """
-
-                        prompt_sistema = f"""
-                        Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
-                        Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
-
-                        Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
-                        {contexto_base}
-
-                        Diretrizes para a sua resposta:
-                        1. Analise o relato do técnico.
-                        2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
-                        3. Forneça uma resposta estruturada contendo:
-                           - **Causas Prováveis**
-                           - **Passo a Passo de Investigação**
-                           - **Recomendações/Ações Imediatas**
-                        4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
-                        5. Mantenha um tom profissional, direto e técnico.
-                        """
-
-                        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[
-                                {"role": "system", "content": prompt_sistema},
-                                {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
-                            ],
-                            temperature=0.3
-                        )
-
-                        diagnostico_ia = response.choices[0].message.content
-
-                        st.markdown("---")
-                        st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
-                        st.info(diagnostico_ia)
-
-                    except Exception as e:
-                        st.error(f"Erro ao processar chamada na IA: {e}")
-
-# ==========================================
-# ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
-# ==========================================
-if st.session_state.user_role == "Admin":
-    indice_audit = 4 if "🤖 Assistente IA" in abas_navegacao else 1
-    with tabs[indice_audit]:
-        st.subheader("📜 Histórico de Auditoria (Audit Log)")
-        st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
-        
-        try:
-            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-            df_logs = pd.DataFrame(res_logs.data)
-            if not df_logs.empty:
-                st.dataframe(
-                    df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
-                    column_config={
-                        "created_at": "Data/Hora",
-                        "usuario_email": "Usuário",
-                        "acao": "Ação",
-                        "detalhes": "Detalhamento"
-                    },
-                    use_container_width=True
-                )
-            else:
-                st.info("Nenhum histórico registrado no momento.")
-        except Exception as e:
-            st.error(f"Erro ao carregar log: {e}")
+    indice_ia = 2 if "🤖 Assistente IA" in abas_navegacao else 0
+    # Como as abas dependem do perfil, ajustamos dinamicamente caso o índice mude
+    # Vamos recriar as abas de forma segura checando a lista de abas ativas
