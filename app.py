@@ -183,7 +183,6 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
     try:
-        # Buscar comentários do usuário para esta ocorrência para checar voto pré-existente
         res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
         comentarios_usuario = res_comentarios.data if res_comentarios.data else []
         
@@ -199,7 +198,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
                 comentario_voto_id = c["id"]
                 break
                 
-        # Buscar contadores atuais
         res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
         if not res_ocor.data:
             return
@@ -207,7 +205,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
         v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
         
         if voto_anterior is None:
-            # Nunca votou: insere o registro do voto nos comentários e incrementa
             supabase.table("comentarios").insert({
                 "ocorrencia_id": ocorrencia_id,
                 "usuario": usuario_email,
@@ -218,7 +215,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg += 1
         elif voto_anterior == tipo_voto:
-            # Já votou exatamente nisso: clica de novo para desmarcar
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             if tipo_voto == "pos":
@@ -226,7 +222,6 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
             else:
                 v_neg = max(0, v_neg - 1)
         else:
-            # Mudou de voto (estava em pos e foi para neg ou vice-versa)
             if comentario_voto_id:
                 supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
             supabase.table("comentarios").insert({
@@ -336,14 +331,14 @@ def obter_perfil_usuario(user_id, email):
 
 def extrair_primeiro_nome(email):
     if not email or "@" not in email:
-        return "Usuário"
+        return "Visitante"
     nome_base = email.split("@")[0].split(".")[0]
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
+# 3. CONTROLE DE SESSÃO E LOGIN OPCIONAL
 # ==========================================
-if "user" not in st.session_state or st.session_state.user is None:
+if "user" not in st.session_state:
     session = supabase.auth.get_session()
     if session:
         st.session_state.user = session.user
@@ -352,7 +347,7 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user_avatar = avatar_ret
     else:
         st.session_state.user = None
-        st.session_state.user_role = "Analista"
+        st.session_state.user_role = "Visitante"
         st.session_state.user_avatar = None
 
 if "favoritos" not in st.session_state:
@@ -372,34 +367,39 @@ def fazer_login(email, password):
         st.error(f"Falha na autenticação: {e}")
 
 def fazer_logout():
-    supabase.auth.sign_out()
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
     st.session_state.user = None
-    st.session_state.user_role = "Analista"
+    st.session_state.user_role = "Visitante"
     st.session_state.user_avatar = None
     st.session_state.favoritos = []
     st.rerun()
 
-# --- TELA DE LOGIN ---
-if st.session_state.user is None:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if os.path.exists("logo_dark.png"):
-            st.image("logo_dark.png", width=90)
-        elif os.path.exists("logo.png"):
-            st.image("logo.png", width=90)
-            
-        st.title("actuar.group")
-        st.subheader("🔐 Central Técnica de Suporte")
+# --- BARRA LATERAL (PAINEL DE LOGIN OPCIONAL / ADMIN) ---
+with st.sidebar:
+    if os.path.exists("logo_dark.png"):
+        st.image("logo_dark.png", width=70)
+    elif os.path.exists("logo.png"):
+        st.image("logo.png", width=70)
         
-        with st.form("login_form"):
+    st.markdown("### 🔐 Área Administrativa")
+    
+    if st.session_state.user is None:
+        st.info("Acesso público liberado. Faça login abaixo apenas se for Administrador.")
+        with st.form("login_sidebar_form"):
             email_input = st.text_input("E-mail:")
             password_input = st.text_input("Senha:", type="password")
-            if st.form_submit_button("Entrar no Sistema"):
+            if st.form_submit_button("Entrar como Admin"):
                 if email_input and password_input:
                     fazer_login(email_input, password_input)
                 else:
                     st.warning("Preencha e-mail e senha.")
-    st.stop()
+    else:
+        st.success(f"Logado como:\n**{st.session_state.user.email}**")
+        if st.button("Sair da Conta (Logout)"):
+            fazer_logout()
 
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
@@ -425,49 +425,50 @@ with col_header_left:
         st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
 
 with col_header_right:
-    role_badge = f"🛡️ **{st.session_state.user_role}**"
-    primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    avatar_url = st.session_state.get("user_avatar", None)
-    
-    col_av, col_txt, col_btn = st.columns([1, 2, 1])
-    with col_av:
-        if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
-            try:
-                st.image(avatar_url, width=40)
-            except Exception:
+    if st.session_state.user:
+        role_badge = f"🛡️ **{st.session_state.user_role}**"
+        primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
+        avatar_url = st.session_state.get("user_avatar", None)
+        
+        col_av, col_txt = st.columns([1, 3])
+        with col_av:
+            if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
+                try:
+                    st.image(avatar_url, width=40)
+                except Exception:
+                    st.markdown("👤")
+            else:
                 st.markdown("👤")
-        else:
-            st.markdown("👤")
-    with col_txt:
-        st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
-    with col_btn:
-        if st.button("Sair"):
-            fazer_logout()
+        with col_txt:
+            st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
+    else:
+        st.markdown("🌐 **Modo Público (Visitante)**<br>Visualização livre sem restrições", unsafe_allow_html=True)
 
 st.markdown("---")
 
-with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
-    col_up1, col_up2 = st.columns([2, 1])
-    with col_up1:
-        novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
-    with col_up2:
-        st.write("")
-        st.write("")
-        if st.button("💾 Atualizar Perfil"):
-            if novo_arquivo_avatar:
-                url_gerada = upload_avatar(novo_arquivo_avatar, st.session_state.user.id)
-                if url_gerada:
-                    try:
-                        supabase.table("perfis").update({"avatar_url": url_gerada}).eq("user_id", st.session_state.user.id).execute()
-                    except Exception:
-                        pass
-                    st.session_state.user_avatar = url_gerada
-                    st.toast("Foto de perfil alterada com sucesso!", icon="✅")
-                    st.rerun()
+if st.session_state.user:
+    with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
+        col_up1, col_up2 = st.columns([2, 1])
+        with col_up1:
+            novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
+        with col_up2:
+            st.write("")
+            st.write("")
+            if st.button("💾 Atualizar Perfil"):
+                if novo_arquivo_avatar:
+                    url_gerada = upload_avatar(novo_arquivo_avatar, st.session_state.user.id)
+                    if url_gerada:
+                        try:
+                            supabase.table("perfis").update({"avatar_url": url_gerada}).eq("user_id", st.session_state.user.id).execute()
+                        except Exception:
+                            pass
+                        st.session_state.user_avatar = url_gerada
+                        st.toast("Foto de perfil alterada com sucesso!", icon="✅")
+                        st.rerun()
+                    else:
+                        st.error("Falha ao enviar a imagem.")
                 else:
-                    st.error("Falha ao enviar a imagem.")
-            else:
-                st.warning("Selecione um arquivo de imagem primeiro.")
+                    st.warning("Selecione um arquivo de imagem primeiro.")
 
 try:
     df_ocorrencias = buscar_ocorrencias_db()
@@ -573,11 +574,12 @@ with tabs[0]:
                 v_pos = row.get('votos_pos', 0) or 0
                 v_neg = row.get('votos_neg', 0) or 0
                 
-                # Buscar comentários para verificar o voto do usuário atual
                 comentarios = buscar_comentarios(ocor_id)
+                user_email_atual = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
+                
                 user_voto = None
                 for c in comentarios:
-                    if c["usuario"].lower() == st.session_state.user.email.lower():
+                    if c["usuario"].lower() == user_email_atual.lower():
                         if c["comentario"] == "[VOTO_POS]":
                             user_voto = "pos"
                             break
@@ -591,11 +593,11 @@ with tabs[0]:
                 col_v1, col_v2, col_space = st.columns([1, 1, 4])
                 with col_v1:
                     if st.button(texto_pos, key=f"pos_{ocor_id}"):
-                        gerenciar_voto(ocor_id, "pos", st.session_state.user.email)
+                        gerenciar_voto(ocor_id, "pos", user_email_atual)
                         st.rerun()
                 with col_v2:
                     if st.button(texto_neg, key=f"neg_{ocor_id}"):
-                        gerenciar_voto(ocor_id, "neg", st.session_state.user.email)
+                        gerenciar_voto(ocor_id, "neg", user_email_atual)
                         st.rerun()
 
                 st.markdown("**💬 Observações dos Analistas:**")
@@ -607,10 +609,11 @@ with tabs[0]:
                     novo_coment = st.text_input("Adicionar dica de campo:", placeholder="Ex: Funciona apenas em modo Admin")
                     if st.form_submit_button("Enviar Comentário"):
                         if novo_coment:
-                            salvar_comentario(ocor_id, st.session_state.user.email, novo_coment)
+                            salvar_comentario(ocor_id, user_email_atual, novo_coment)
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
+                # BLOCO EXCLUSIVO DE ADMIN (EXCLUSÃO E EDIÇÃO)
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
                     
@@ -739,6 +742,7 @@ with tabs[indice_cad]:
         if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
             if in_prob and in_motivo and in_solucao:
                 anexo_url = upload_anexo(in_anexo) if in_anexo else None
+                autor_reg = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
                 dados = {
                     "sistema": in_sist,
                     "equipamento": in_hw,
@@ -749,9 +753,9 @@ with tabs[indice_cad]:
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
                     "anexo_url": anexo_url,
-                    "autor_email": st.session_state.user.email
+                    "autor_email": autor_reg
                 }
-                salvar_ocorrencia_db(dados, st.session_state.user.email)
+                salvar_ocorrencia_db(dados, autor_reg)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
                 st.rerun()
             else:
