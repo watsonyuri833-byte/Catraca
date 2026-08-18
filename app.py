@@ -159,6 +159,7 @@ def salvar_ocorrencia_db(dados, usuario_email):
     try:
         if "origem" not in dados:
             dados["origem"] = "Manual"
+            
         dados_limpos = limpar_dados_para_json(dados)
         supabase.table("ocorrencias").insert(dados_limpos).execute()
         registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
@@ -228,6 +229,10 @@ def processar_importacao_txt(file_bytes, usuario_email):
                     "origem": "Importado TXT",
                     "anexo_url": None
                 }
+                
+                if "origem" not in dados:
+                    dados["origem"] = "Manual"
+                    
                 dados_limpos = limpar_dados_para_json(dados)
                 supabase.table("ocorrencias").insert(dados_limpos).execute()
                 importadas += 1
@@ -241,6 +246,9 @@ def processar_importacao_txt(file_bytes, usuario_email):
 
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
     try:
+        if "origem" not in dados_atualizados:
+            dados_atualizados["origem"] = "Manual"
+            
         dados_limpos = limpar_dados_para_json(dados_atualizados)
         supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
         registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
@@ -678,7 +686,8 @@ with tabs[0]:
                                     "status": edit_status,
                                     "nivel": edit_nivel,
                                     "tempo_estimado": edit_tempo,
-                                    "anexo_url": nova_url_anexo
+                                    "anexo_url": nova_url_anexo,
+                                    "origem": origem_reg
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
