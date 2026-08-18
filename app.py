@@ -526,7 +526,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC (DESIGN MINIMALISTA SAAS)
+# ABA 3: DASHBOARD EXEC (DESIGN MINIMALISTA SAAS + NOVOS GRÁFICOS)
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -603,6 +603,70 @@ with tabs[2]:
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
+        st.markdown("---")
+        g3, g4 = st.columns(2)
+
+        with g3:
+            st.markdown("### 📌 Distribuição por Status das Tratativas")
+            df_status = df_ocorrencias['status'].value_counts().reset_index()
+            df_status.columns = ['status', 'count']
+
+            fig_status = px.pie(
+                df_status, names='status', values='count',
+                hole=0.65,
+                color_discrete_sequence=CORES_NEON
+            )
+            fig_status.update_traces(
+                textinfo='percent+label',
+                textfont=dict(color='#ffffff', size=12),
+                marker=dict(line=dict(color='#161b22', width=2))
+            )
+            fig_status.update_layout(
+                showlegend=False,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#c9d1d9', family="Sans-Serif"),
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=300
+            )
+            st.plotly_chart(fig_status, use_container_width=True)
+
+        with g4:
+            st.markdown("### 🔍 Top Motivos / Causas Raiz")
+            if 'motivo' in df_ocorrencias.columns:
+                df_motivos = df_ocorrencias['motivo'].fillna('Não especificado').value_counts().reset_index()
+                df_motivos.columns = ['motivo', 'count']
+                # Pega os top 5 motivos mais comuns para não poluir o gráfico
+                df_motivos = df_motivos.head(5)
+
+                fig_motivo = px.bar(
+                    df_motivos,
+                    x='count',
+                    y='motivo',
+                    orientation='h',
+                    text='count',
+                    color_discrete_sequence=['#10B981']
+                )
+                fig_motivo.update_traces(
+                    textposition='outside',
+                    textfont=dict(color='#e6edf3', size=12),
+                    width=0.35,
+                    marker=dict(line=dict(width=0))
+                )
+                fig_motivo.update_layout(
+                    showlegend=False,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#c9d1d9', family="Sans-Serif"),
+                    xaxis=dict(title="", showgrid=False, showticklabels=False, zeroline=False),
+                    yaxis=dict(title="", showgrid=False, categoryorder="total ascending"),
+                    margin=dict(l=10, r=30, t=10, b=10),
+                    height=300
+                )
+                st.plotly_chart(fig_motivo, use_container_width=True)
+            else:
+                st.info("Sem dados suficientes para os motivos.")
+
 # ==========================================
 # ABA 4: ASSISTENTE IA (EXCLUSIVO ADMIN)
 # ==========================================
@@ -677,7 +741,6 @@ if st.session_state.user_role == "Admin":
 # ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
 # ==========================================
 if st.session_state.user_role == "Admin":
-    # Como a aba de IA existe para admin, o índice da aba de logs passa a ser o índice 4
     indice_audit = 4 if "🤖 Assistente IA" in abas_navegacao else 1
     with tabs[indice_audit]:
         st.subheader("📜 Histórico de Auditoria (Audit Log)")
