@@ -69,13 +69,20 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
         # 1. Deleta registros dependentes na tabela de comentários
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        # 2. Deleta o registro principal
-        supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-        # 3. Registra log de auditoria
-        registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
-        return True
+        
+        # 2. Deleta o registro principal da ocorrência
+        res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
+        
+        # 3. Valida se o banco realmente confirmou a deleção do registro
+        if res.data and len(res.data) > 0:
+            registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
+            return True
+        else:
+            st.error("O banco bloqueou a exclusão. Verifique se o RLS (Row Level Security) está liberado no Supabase para permissão de DELETE.")
+            return False
+            
     except Exception as e:
-        st.error(f"Erro no banco ao excluir: {e}")
+        st.error(f"Erro ao excluir no Supabase: {e}")
         return False
 
 def computar_voto(ocorrencia_id, tipo_voto, valor_atual):
@@ -308,7 +315,6 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # Botão fora de forms para evitar concorrência
                 st.markdown("---")
                 if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
                     sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
