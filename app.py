@@ -127,15 +127,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS
+# 2. CONEXÃO E BANCO DE DADOS (SEM CACHE GLOBAL PARA ISOLAR SESSÕES)
 # ==========================================
-@st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
 supabase = init_supabase()
+
+def limpar_votos_negativos_id_5():
+    try:
+        # Remove os votos negativos de teste da ocorrência #5
+        supabase.table("comentarios").delete().eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
+        res_neg = supabase.table("comentarios").select("*").eq("ocorrencia_id", 5).eq("comentario", "[VOTO_NEG]").execute()
+        total_neg = len(res_neg.data) if res_neg.data else 0
+        supabase.table("ocorrencias").update({"votos_neg": total_neg}).eq("id", 5).execute()
+    except Exception:
+        pass
+
+# Executa a limpeza da ID 5 na inicialização
+limpar_votos_negativos_id_5()
 
 def buscar_ocorrencias_db():
     res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -310,7 +322,7 @@ def extrair_primeiro_nome(email):
 # ==========================================
 if "user" not in st.session_state:
     session = supabase.auth.get_session()
-    if session:
+    if session and session.user:
         st.session_state.user = session.user
         st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
     else:
@@ -368,12 +380,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
