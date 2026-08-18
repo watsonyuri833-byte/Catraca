@@ -4,6 +4,7 @@ import plotly.express as px
 from supabase import create_client, Client
 import os
 import time
+import openai
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
@@ -331,7 +332,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo", "🤖 Exportar para IA"]
+abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo", "🤖 Assistente IA"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📜 Audit Log (Gestão)")
 
@@ -523,7 +524,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC
+# ABA 3: DASHBOARD EXEC (DESIGN MINIMALISTA SAAS)
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -544,6 +545,7 @@ with tabs[2]:
         CORES_NEON = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4']
         
         with g1:
+            st.markdown("### Top Equipamentos com Falhas")
             df_hw = df_ocorrencias['equipamento'].value_counts().reset_index()
             df_hw.columns = ['equipamento', 'count']
             
@@ -553,96 +555,120 @@ with tabs[2]:
                 y='equipamento', 
                 color='equipamento',
                 orientation='h',
-                title="<b>Top Equipamentos com Falhas</b>",
                 text='count',
                 color_discrete_sequence=CORES_NEON
             )
             fig_hw.update_traces(
                 textposition='outside', 
                 textfont=dict(color='#e6edf3', size=13), 
-                width=0.45,
-                marker=dict(line=dict(color='#30363d', width=1.5)) # Adiciona borda nas barras
+                width=0.35, # Barras mais finas e elegantes
+                marker=dict(line=dict(width=0)) # Sem borda quadriculada
             )
             fig_hw.update_layout(
                 showlegend=False, 
-                paper_bgcolor='rgba(13, 17, 23, 0.6)', 
-                plot_bgcolor='rgba(13, 17, 23, 0.6)',
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#c9d1d9', family="Sans-Serif"), 
-                title_font=dict(size=16, color='#e6edf3'),
-                xaxis=dict(title="Ocorrências", showgrid=True, gridcolor='#21262d', dtick=1),
-                yaxis=dict(title="", showgrid=False), 
-                margin=dict(l=20, r=40, t=50, b=40),
-                # Borda e cantos arredondados no container do gráfico
-                shapes=[dict(
-                    type="rect", xref="paper", yref="paper", x0=0, y0=0, x1=1, y1=1,
-                    line=dict(color="#30363d", width=1.5), fillcolor="rgba(0,0,0,0)"
-                )]
+                xaxis=dict(title="", showgrid=False, showticklabels=False, zeroline=False),
+                yaxis=dict(title="", showgrid=False, categoryorder="total ascending"), 
+                margin=dict(l=10, r=30, t=10, b=10),
+                height=300
             )
             st.plotly_chart(fig_hw, use_container_width=True)
             
         with g2:
+            st.markdown("### Distribuição por Sistema")
             df_sist = df_ocorrencias['sistema'].value_counts().reset_index()
             df_sist.columns = ['sistema', 'count']
             
             fig_sist = px.pie(
                 df_sist, names='sistema', values='count',
-                title="<b>Distribuição por Sistema (Software)</b>", hole=0.55,
+                hole=0.65, # Rosca moderna
                 color_discrete_sequence=CORES_NEON
             )
             fig_sist.update_traces(
                 textinfo='percent+label', 
                 textfont=dict(color='#ffffff', size=12),
-                marker=dict(line=dict(color='#30363d', width=2)) # Adiciona borda nas fatias do donut
+                marker=dict(line=dict(color='#161b22', width=2)) # Separação sutil entre fatias
             )
             fig_sist.update_layout(
-                showlegend=True, 
-                legend=dict(font=dict(color='#e6edf3'), orientation="h", y=-0.1),
-                paper_bgcolor='rgba(13, 17, 23, 0.6)', 
-                plot_bgcolor='rgba(13, 17, 23, 0.6)',
+                showlegend=False, 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#c9d1d9', family="Sans-Serif"), 
-                title_font=dict(size=16, color='#e6edf3'),
-                margin=dict(l=20, r=20, t=50, b=40),
-                # Borda e cantos arredondados no container do gráfico
-                shapes=[dict(
-                    type="rect", xref="paper", yref="paper", x0=0, y0=0, x1=1, y1=1,
-                    line=dict(color="#30363d", width=1.5), fillcolor="rgba(0,0,0,0)"
-                )]
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=300
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
 # ==========================================
-# ABA 4: EXPORTAR CONTEXTO PARA IA (GRATUITO)
+# ABA 4: ASSISTENTE IA (GERAÇÃO DE DIAGNÓSTICOS AVANÇADOS)
 # ==========================================
 with tabs[3]:
-    st.subheader("🤖 Exportar Base de Conhecimento para IA")
-    st.markdown("""
-    Clique no botão abaixo para baixar um arquivo de texto (`.txt`) contendo **todas as ocorrências, problemas, motivos e soluções** mapeados no banco. 
+    st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
+    st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
     
-    Depois, basta enviar esse arquivo em qualquer conversa com uma IA gratuita (como o **ChatGPT, Claude ou Google Gemini**) e pedir para ela analisar, diagnosticar novos problemas ou resumir os dados!
-    """)
+    pergunta_tecnico = st.text_area(
+        "Descreva detalhadamente o sintoma do problema:", 
+        placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
+    )
     
-    if not df_ocorrencias.empty:
-        conteudo_ia = "BASE DE CONHECIMENTO TÉCNICO - ACTUAR.GROUP\n"
-        conteudo_ia += "="*50 + "\n\n"
-        
-        for _, row in df_ocorrencias.iterrows():
-            conteudo_ia += f"ID: #{row.get('id')}\n"
-            conteudo_ia += f"Sistema: {row.get('sistema')}\n`"
-            conteudo_ia += f"Equipamento: {row.get('equipamento')}\n"
-            conteudo_ia += f"Status: {row.get('status')}\n"
-            conteudo_ia += f"Problema (Sintoma): {row.get('problema')}\n"
-            conteudo_ia += f"Causa Raiz (Motivo): {row.get('motivo')}\n"
-            conteudo_ia += f"Solução Aplicada: {row.get('solucao')}\n"
-            conteudo_ia += "-"*40 + "\n\n"
-            
-        st.download_button(
-            label="📥 Baixar Base de Dados Formatada para IA (.txt)",
-            data=conteudo_ia,
-            file_name="base_conhecimento_ia.txt",
-            mime="text/plain"
-        )
-    else:
-        st.info("Ainda não há ocorrências cadastradas para exportar.")
+    if st.button("🔍 Gerar Diagnóstico com IA"):
+        if not pergunta_tecnico.strip():
+            st.warning("Por favor, descreva o problema antes de consultar a IA.")
+        elif df_ocorrencias.empty:
+            st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
+        elif "OPENAI_API_KEY" not in st.secrets:
+            st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
+        else:
+            with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
+                try:
+                    contexto_base = ""
+                    for _, row in df_ocorrencias.iterrows():
+                        contexto_base += f"""
+                        - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
+                          Problema: {row.get('problema')}
+                          Causa Raiz: {row.get('motivo')}
+                          Solução Aplicada: {row.get('solucao')}
+                        ------------------------------------
+                        """
+
+                    prompt_sistema = f"""
+                    Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
+                    Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
+
+                    Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
+                    {contexto_base}
+
+                    Diretrizes para a sua resposta:
+                    1. Analise o relato do técnico.
+                    2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
+                    3. Forneça uma resposta estruturada contendo:
+                       - **Causas Prováveis**
+                       - **Passo a Passo de Investigação**
+                       - **Recomendações/Ações Imediatas**
+                    4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
+                    5. Mantenha um tom profissional, direto e técnico.
+                    """
+
+                    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": prompt_sistema},
+                            {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
+                        ],
+                        temperature=0.3
+                    )
+
+                    diagnostico_ia = response.choices[0].message.content
+
+                    st.markdown("---")
+                    st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
+                    st.info(diagnostico_ia)
+
+                except Exception as e:
+                    st.error(f"Erro ao processar chamada na IA: {e}")
 
 # ==========================================
 # ABA 5: AUDIT LOG (ADMIN)
