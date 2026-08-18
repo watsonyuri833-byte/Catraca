@@ -168,10 +168,6 @@ def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        try:
-            supabase.table("votos").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        except Exception:
-            pass
         res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
         
         if res.data and len(res.data) > 0:
@@ -187,41 +183,67 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
     try:
-        res = supabase.table("votos").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
-        voto_existente = res.data
+        # Buscar comentários do usuário para esta ocorrência para checar voto pré-existente
+        res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+        comentarios_usuario = res_comentarios.data if res_comentarios.data else []
         
+        voto_anterior = None
+        comentario_voto_id = None
+        for c in comentarios_usuario:
+            if c["comentario"] == "[VOTO_POS]":
+                voto_anterior = "pos"
+                comentario_voto_id = c["id"]
+                break
+            elif c["comentario"] == "[VOTO_NEG]":
+                voto_anterior = "neg"
+                comentario_voto_id = c["id"]
+                break
+                
+        # Buscar contadores atuais
         res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
         if not res_ocor.data:
             return
         v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
         v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
         
-        if not voto_existente:
-            supabase.table("votos").insert({"ocorrencia_id": ocorrencia_id, "usuario": usuario_email, "tipo": tipo_voto}).execute()
+        if voto_anterior is None:
+            # Nunca votou: insere o registro do voto nos comentários e incrementa
+            supabase.table("comentarios").insert({
+                "ocorrencia_id": ocorrencia_id,
+                "usuario": usuario_email,
+                "comentario": f"[VOTO_{tipo_voto.upper()}]"
+            }).execute()
             if tipo_voto == "pos":
                 v_pos += 1
             else:
                 v_neg += 1
-        else:
-            tipo_atual = voto_existente[0]["tipo"]
-            if tipo_atual == tipo_voto:
-                supabase.table("votos").delete().eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
-                if tipo_voto == "pos":
-                    v_pos = max(0, v_pos - 1)
-                else:
-                    v_neg = max(0, v_neg - 1)
+        elif voto_anterior == tipo_voto:
+            # Já votou exatamente nisso: clica de novo para desmarcar
+            if comentario_voto_id:
+                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
+            if tipo_voto == "pos":
+                v_pos = max(0, v_pos - 1)
             else:
-                supabase.table("votos").update({"tipo": tipo_voto}).eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
-                if tipo_voto == "pos":
-                    v_pos += 1
-                    v_neg = max(0, v_neg - 1)
-                else:
-                    v_neg += 1
-                    v_pos = max(0, v_pos - 1)
-                    
+                v_neg = max(0, v_neg - 1)
+        else:
+            # Mudou de voto (estava em pos e foi para neg ou vice-versa)
+            if comentario_voto_id:
+                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
+            supabase.table("comentarios").insert({
+                "ocorrencia_id": ocorrencia_id,
+                "usuario": usuario_email,
+                "comentario": f"[VOTO_{tipo_voto.upper()}]"
+            }).execute()
+            if tipo_voto == "pos":
+                v_pos += 1
+                v_neg = max(0, v_neg - 1)
+            else:
+                v_neg += 1
+                v_pos = max(0, v_pos - 1)
+                
         supabase.table("ocorrencias").update({"votos_pos": v_pos, "votos_neg": v_neg}).eq("id", ocorrencia_id).execute()
     except Exception as e:
-        st.error(f"Erro ao gerenciar voto. Verifique se a tabela 'votos' existe no Supabase: {e}")
+        st.error(f"Erro ao gerenciar voto: {e}")
 
 def buscar_comentarios(ocorrencia_id):
     res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
@@ -551,14 +573,17 @@ with tabs[0]:
                 v_pos = row.get('votos_pos', 0) or 0
                 v_neg = row.get('votos_neg', 0) or 0
                 
-                # Verificar se o usuário logado já votou nesta ocorrência
+                # Buscar comentários para verificar o voto do usuário atual
+                comentarios = buscar_comentarios(ocor_id)
                 user_voto = None
-                try:
-                    res_voto = supabase.table("votos").select("tipo").eq("ocorrencia_id", ocor_id).eq("usuario", st.session_state.user.email).execute()
-                    if res_voto.data:
-                        user_voto = res_voto.data[0]["tipo"]
-                except Exception:
-                    pass
+                for c in comentarios:
+                    if c["usuario"].lower() == st.session_state.user.email.lower():
+                        if c["comentario"] == "[VOTO_POS]":
+                            user_voto = "pos"
+                            break
+                        elif c["comentario"] == "[VOTO_NEG]":
+                            user_voto = "neg"
+                            break
 
                 texto_pos = f"👍 Funcionou ({v_pos})" + (" ✅" if user_voto == "pos" else "")
                 texto_neg = f"👎 Não funcionou ({v_neg})" + (" ✅" if user_voto == "neg" else "")
@@ -574,8 +599,8 @@ with tabs[0]:
                         st.rerun()
 
                 st.markdown("**💬 Observações dos Analistas:**")
-                comentarios = buscar_comentarios(ocor_id)
-                for c in comentarios:
+                comentarios_reais = [c for c in comentarios if not c['comentario'].startswith("[VOTO_")]
+                for c in comentarios_reais:
                     st.caption(f"**{c['usuario']}**: {c['comentario']}")
                 
                 with st.form(key=f"form_coment_{ocor_id}"):
