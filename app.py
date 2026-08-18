@@ -435,10 +435,16 @@ with tabs[0]:
     col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
     
     with col_f1:
-        sist_opt = ["Todos"] + sorted(list(df_ocorrencias["sistema"].dropna().unique())) if not df_ocorrencias.empty else ["Todos"]
+        sist_base = set(LISTA_SISTEMA)
+        if not df_ocorrencias.empty and "sistema" in df_ocorrencias.columns:
+            sist_base.update(df_ocorrencias["sistema"].dropna().unique())
+        sist_opt = ["Todos"] + sorted(list(sist_base))
         f_sist = st.selectbox("Filtrar por Sistema:", sist_opt)
     with col_f2:
-        hw_opt = ["Todos"] + sorted(list(df_ocorrencias["equipamento"].dropna().unique())) if not df_ocorrencias.empty else ["Todos"]
+        hw_base = set(LISTA_HARDWARE)
+        if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns:
+            hw_base.update(df_ocorrencias["equipamento"].dropna().unique())
+        hw_opt = ["Todos"] + sorted(list(hw_base))
         f_hw = st.selectbox("Filtrar por Hardware:", hw_opt)
     with col_f3:
         f_busca = st.text_input("Buscar termo ou palavra-chave:", "")
