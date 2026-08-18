@@ -861,4 +861,4 @@ if st.session_state.user_role == "Admin":
             else:
                 st.info("Nenhum histórico registrado no momento.")
         except Exception as e:
-            st.error(f>Erro ao carregar log: {e}")
+            st.error(f"Erro ao carregar log: {e}")
