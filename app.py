@@ -65,20 +65,25 @@ def salvar_ocorrencia_db(dados, usuario_email):
     supabase.table("ocorrencias").insert(dados).execute()
     registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
 
+def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
+    try:
+        supabase.table("ocorrencias").update(dados_atualizados).eq("id", ocorrencia_id).execute()
+        registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar registro: {e}")
+        return False
+
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
-        # 1. Deleta registros dependentes na tabela de comentários
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        
-        # 2. Deleta o registro principal da ocorrência
         res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
         
-        # 3. Valida se o banco realmente confirmou a deleção do registro
         if res.data and len(res.data) > 0:
             registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
             return True
         else:
-            st.error("O banco bloqueou a exclusão. Verifique se o RLS (Row Level Security) está liberado no Supabase para permissão de DELETE.")
+            st.error("O banco bloqueou a exclusão. Verifique se o RLS está liberado no Supabase.")
             return False
             
     except Exception as e:
@@ -105,15 +110,14 @@ def upload_anexo(file):
     try:
         ext = file.name.split('.')[-1]
         file_name = f"evidencia_{int(time.time())}.{ext}"
-        path = f"public/{file_name}"
-        
         file_bytes = file.getvalue()
+        
         supabase.storage.from_("anexos_evidencias").upload(
-            path=path,
+            path=file_name,
             file=file_bytes,
             file_options={"content-type": file.type}
         )
-        url_res = supabase.storage.from_("anexos_evidencias").get_public_url(path)
+        url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
         return url_res
     except Exception as e:
         st.error(f"Erro no upload da imagem: {e}")
@@ -234,7 +238,7 @@ if st.session_state.user_role == "Admin":
 tabs = st.tabs(abas_navegacao)
 
 # ==========================================
-# ABA 1: CONSULTA + AVALIAÇÃO + COMENTÁRIOS + DELETAR
+# ABA 1: CONSULTA + EDIÇÃO (ADMIN) + AVALIAÇÃO + EXCLUSÃO
 # ==========================================
 with tabs[0]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
@@ -284,9 +288,13 @@ with tabs[0]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
-                if anexo and str(anexo).startswith("http"):
+                if anexo and pd.notna(anexo) and str(anexo).strip() != "":
+                    st.markdown("---")
                     st.markdown("📷 **Evidência Anexada:**")
-                    st.image(anexo, width=450)
+                    try:
+                        st.image(str(anexo), width=500)
+                    except Exception:
+                        st.warning("Não foi possível carregar a imagem armazenada.")
 
                 st.markdown("---")
                 v_pos = row.get('votos_pos', 0) or 0
@@ -315,12 +323,68 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                st.markdown("---")
-                if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
-                    sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
-                    if sucesso:
-                        st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
-                        st.rerun()
+                # ==========================================
+                # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN / VOCÊ)
+                # ==========================================
+                if st.session_state.user_role == "Admin":
+                    st.markdown("---")
+                    
+                    # Formulário Expansível de Edição
+                    with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
+                        with st.form(key=f"form_edit_{ocor_id}"):
+                            edit_col1, edit_col2 = st.columns(2)
+                            
+                            idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+                            idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+                            
+                            lista_status = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
+                            idx_status = lista_status.index(status) if status in lista_status else 0
+                            
+                            lista_niveis = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
+                            idx_nivel = [i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])]
+                            idx_nivel = idx_nivel[0] if idx_nivel else 0
+                            
+                            lista_tempos = ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"]
+                            idx_tempo = lista_tempos.index(tempo) if tempo in lista_tempos else 0
+
+                            with edit_col1:
+                                edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
+                                edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
+                                edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
+                            with edit_col2:
+                                edit_hw = st.selectbox("⚙️ Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
+                                edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
+                                edit_anexo = st.file_uploader("📷 Substituir Foto/Anexo (Opcional):", type=["png", "jpg", "jpeg"], key=f"ea_{ocor_id}")
+
+                            edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
+                            edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
+                            edit_solucao = st.text_area("Solução Passo a Passo:", value=row.get('solucao', ''), key=f"eso_{ocor_id}")
+
+                            if st.form_submit_button("💾 Salvar Alterações"):
+                                nova_url_anexo = upload_anexo(edit_anexo) if edit_anexo else anexo
+                                
+                                dados_novos = {
+                                    "sistema": edit_sist,
+                                    "equipamento": edit_hw,
+                                    "problema": edit_prob,
+                                    "motivo": edit_motivo,
+                                    "solucao": edit_solucao,
+                                    "status": edit_status,
+                                    "nivel": edit_nivel,
+                                    "tempo_estimado": edit_tempo,
+                                    "anexo_url": nova_url_anexo
+                                }
+                                
+                                if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
+                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
+                                    st.rerun()
+
+                    # Botão de Exclusão
+                    if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
+                        sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
+                        if sucesso:
+                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
+                            st.rerun()
 
 # ==========================================
 # ABA 2: CADASTRO COM ANEXO
@@ -446,6 +510,6 @@ if st.session_state.user_role == "Admin" and len(tabs) > 4:
                     use_container_width=True
                 )
             else:
-                st.info("Nenhum histórico registrado no momento.")
+                st.info("Nenum histórico registrado no momento.")
         except Exception as e:
             st.error(f"Erro ao carregar log: {e}")
