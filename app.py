@@ -246,6 +246,13 @@ def obter_perfil_usuario(user_id, email):
     
     return role_atribuida
 
+def extrair_primeiro_nome(email):
+    """Extrai e formata o primeiro nome a partir do e-mail (ex: watson.cruz@... -> Watson)"""
+    if not email or "@" not in email:
+        return "Usuário"
+    nome_base = email.split("@")[0].split(".")[0]
+    return nome_base.capitalize()
+
 # ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
 # ==========================================
@@ -317,7 +324,8 @@ with col_logo:
 
 with col_user:
     role_badge = f"🛡️ **{st.session_state.user_role}**"
-    st.write(f"👤 {st.session_state.user.email} | {role_badge}")
+    primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
+    st.write(f"👤 Olá, **{primeiro_nome_logado}** | {role_badge}")
     if st.button("🚪 Sair"):
         fazer_logout()
 
@@ -328,7 +336,8 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
+# Garante a coluna de autor caso o banco seja antigo e não tenha a coluna criada
+for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "autor_email"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
@@ -382,7 +391,14 @@ with tabs[0]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            with st.expander(f"[{status}] {sist} + {hw} — {prob}"):
+            # Identificação do Autor (Primeiro Nome)
+            email_autor = row.get('autor_email', None)
+            nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
+            
+            # Cabeçalho customizado com o nome e um avatar em ícone
+            titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
+            
+            with st.expander(titulo_card):
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
@@ -486,7 +502,7 @@ with tabs[0]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: CADASTRO COM ANEXO
+# ABA 2: CADASTRO COM ANEXO E AUTOR
 # ==========================================
 with tabs[1]:
     st.subheader("➕ Novo Mapeamento Técnico")
@@ -517,7 +533,8 @@ with tabs[1]:
                     "status": in_status,
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
-                    "anexo_url": anexo_url
+                    "anexo_url": anexo_url,
+                    "autor_email": st.session_state.user.email  # Salva o e-mail para extrair o primeiro nome dinamicamente
                 }
                 salvar_ocorrencia_db(dados, st.session_state.user.email)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
@@ -526,7 +543,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXEC (DESIGN MINIMALISTA SAAS + NOVOS GRÁFICOS)
+# ABA 3: DASHBOARD EXEC
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Indicadores da Central Técnica")
@@ -636,7 +653,6 @@ with tabs[2]:
             if 'motivo' in df_ocorrencias.columns:
                 df_motivos = df_ocorrencias['motivo'].fillna('Não especificado').value_counts().reset_index()
                 df_motivos.columns = ['motivo', 'count']
-                # Pega os top 5 motivos mais comuns para não poluir o gráfico
                 df_motivos = df_motivos.head(5)
 
                 fig_motivo = px.bar(
