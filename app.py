@@ -157,8 +157,8 @@ def limpar_dados_para_json(dados):
 
 def salvar_ocorrencia_db(dados, usuario_email):
     try:
-        if "origem" not in dados:
-            dados["origem"] = "Manual"
+        # Remove a chave 'origem' caso venha nos dados
+        dados.pop("origem", None)
             
         dados_limpos = limpar_dados_para_json(dados)
         supabase.table("ocorrencias").insert(dados_limpos).execute()
@@ -226,13 +226,9 @@ def processar_importacao_txt(file_bytes, usuario_email):
                     "status": "🟢 Solução Definitiva",
                     "nivel": "N1 - Fácil / Rápido",
                     "tempo_estimado": "15 minutos",
-                    "origem": "Importado TXT",
                     "anexo_url": None
                 }
                 
-                if "origem" not in dados:
-                    dados["origem"] = "Manual"
-                    
                 dados_limpos = limpar_dados_para_json(dados)
                 supabase.table("ocorrencias").insert(dados_limpos).execute()
                 importadas += 1
@@ -246,8 +242,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
 
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
     try:
-        if "origem" not in dados_atualizados:
-            dados_atualizados["origem"] = "Manual"
+        dados_atualizados.pop("origem", None)
             
         dados_limpos = limpar_dados_para_json(dados_atualizados)
         supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
@@ -499,12 +494,9 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "origem"]:
+for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
-        if col == "origem":
-            df_ocorrencias[col] = "Manual"
-        else:
-            df_ocorrencias[col] = None
+        df_ocorrencias[col] = None
 
 # Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
@@ -561,8 +553,6 @@ with tabs[0]:
             nivel = row.get('nivel', 'N1')
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
-            origem_reg = row.get('origem', 'Manual')
-            tag_origem = "👤 Manual" if origem_reg == "Manual" else "📁 Importado TXT"
             
             is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
@@ -584,7 +574,7 @@ with tabs[0]:
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
                 c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
-                c4.markdown(f"**📌 Origem:** {tag_origem}")
+                c4.markdown(f"**📌 Registro:** OK")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
@@ -686,8 +676,7 @@ with tabs[0]:
                                     "status": edit_status,
                                     "nivel": edit_nivel,
                                     "tempo_estimado": edit_tempo,
-                                    "anexo_url": nova_url_anexo,
-                                    "origem": origem_reg
+                                    "anexo_url": nova_url_anexo
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
@@ -721,8 +710,6 @@ with tabs[1]:
             nivel = row.get('nivel', 'N1')
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
-            origem_reg = row.get('origem', 'Manual')
-            tag_origem = "👤 Manual" if origem_reg == "Manual" else "📁 Importado TXT"
             
             titulo_card_fav = f"⭐ [{status}] {sist} + {hw} — {prob}"
             
@@ -736,7 +723,7 @@ with tabs[1]:
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
                 c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
-                c4.markdown(f"**📌 Origem:** {tag_origem}")
+                c4.markdown(f"**📌 Registro:** OK")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
@@ -783,8 +770,7 @@ with tabs[indice_cad]:
                     "status": in_status,
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
-                    "anexo_url": anexo_url,
-                    "origem": "Manual"
+                    "anexo_url": anexo_url
                 }
                 if salvar_ocorrencia_db(dados, autor_reg):
                     st.toast("Tratativa salva com sucesso!", icon="🎉")
