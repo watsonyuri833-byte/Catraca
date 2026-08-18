@@ -128,13 +128,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS (ISOLAMENTO POR SESSÃO)
+# 2. CONEXÃO E BANCO DE DADOS (GLOBAL PARA LEITURA, ISOLADO PARA AÇÃO)
 # ==========================================
+def get_supabase_public() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
 def get_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     client = create_client(url, key)
-    # Restaura o token específico do usuário logado nesta sessão do Streamlit
     if "access_token" in st.session_state and st.session_state.access_token:
         try:
             client.auth.set_session(st.session_state.access_token, st.session_state.refresh_token)
@@ -143,9 +147,10 @@ def get_supabase() -> Client:
     return client
 
 supabase = get_supabase()
+supabase_public = get_supabase_public()
 
 def buscar_ocorrencias_db():
-    res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
+    res = supabase_public.table("ocorrencias").select("*").order("id", desc=True).execute()
     return pd.DataFrame(res.data)
 
 def registrar_log(usuario_email, acao, detalhes):
@@ -189,7 +194,7 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
     try:
-        res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
+        res_comentarios = supabase_public.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
         comentarios_usuario = res_comentarios.data if res_comentarios.data else []
         
         voto_anterior = None
@@ -204,7 +209,7 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
                 comentario_voto_id = c["id"]
                 break
                 
-        res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
+        res_ocor = supabase_public.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
         if not res_ocor.data:
             return
         v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
@@ -247,7 +252,7 @@ def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
         st.error(f"Erro ao gerenciar voto: {e}")
 
 def buscar_comentarios(ocorrencia_id):
-    res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
+    res = supabase_public.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
     return res.data
 
 def salvar_comentario(ocorrencia_id, usuario, texto):
@@ -315,7 +320,7 @@ def obter_perfil_usuario(user_id, email):
         role_atribuida = "Analista"
         
     try:
-        res = supabase.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
+        res = supabase_public.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
         if res.data:
             if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
                 supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
