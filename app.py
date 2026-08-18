@@ -207,6 +207,20 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
         "comentario": texto
     }).execute()
 
+def extrair_url_publica(res):
+    """Função auxiliar robusta para extrair a string da URL pública do Supabase"""
+    if not res:
+        return None
+    if isinstance(res, str):
+        return res
+    if isinstance(res, dict):
+        return res.get("publicUrl") or res.get("data", {}).get("publicUrl") or res.get("signedURL")
+    if hasattr(res, "public_url"):
+        return res.public_url
+    if hasattr(res, "publicUrl"):
+        return res.publicUrl
+    return str(res)
+
 def upload_anexo(file):
     try:
         ext = file.name.split('.')[-1]
@@ -214,20 +228,21 @@ def upload_anexo(file):
         file_bytes = file.getvalue()
         
         try:
+            supabase.storage.create_bucket("anexos_evidencias", {"public": True})
+        except Exception:
+            pass
+            
+        try:
             supabase.storage.from_("anexos_evidencias").upload(
                 path=file_name,
                 file=file_bytes,
-                file_options={"content-type": file.type}
+                file_options={"content-type": file.type, "upsert": "true"}
             )
         except Exception:
             pass
             
         res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
-        if isinstance(res, dict):
-            url_res = res.get("publicUrl") or res.get("data", {}).get("publicUrl")
-        else:
-            url_res = str(res)
-        return url_res
+        return extrair_url_publica(res)
     except Exception as e:
         st.error(f"Erro no upload da imagem: {e}")
         return None
@@ -253,11 +268,7 @@ def upload_avatar(file, user_id):
             pass
                 
         res = supabase.storage.from_("avatares").get_public_url(file_name)
-        if isinstance(res, dict):
-            url_res = res.get("publicUrl") or res.get("data", {}).get("publicUrl")
-        else:
-            url_res = str(res)
-        return url_res
+        return extrair_url_publica(res)
     except Exception as e:
         return upload_anexo(file)
 
@@ -353,7 +364,7 @@ if st.session_state.user is None:
     st.stop()
 
 # ==========================================
-# 4. CABEÇALHO E ESTRUTURA DE ABAS (LAYOUT CORRIGIDO)
+# 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
 LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
@@ -363,7 +374,6 @@ LISTA_HARDWARE = [
     "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
-# Layout unificado do cabeçalho alinhado ao topo à direita
 col_header_left, col_header_right = st.columns([6, 4])
 
 with col_header_left:
@@ -385,7 +395,7 @@ with col_header_right:
     with col_av:
         if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
             try:
-                st.image(avatar_url, width=40)
+                st.image(str(avatar_url), width=40)
             except Exception:
                 st.markdown("👤")
         else:
@@ -417,7 +427,7 @@ with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
                     st.toast("Foto de perfil alterada com sucesso!", icon="✅")
                     st.rerun()
                 else:
-                    st.error("Falha ao enviar a imagem.")
+                    st.error("Falha ao gerar a URL pública da imagem.")
             else:
                 st.warning("Selecione um arquivo de imagem primeiro.")
 
@@ -438,7 +448,7 @@ if st.session_state.user_role == "Admin":
 tabs = st.tabs(abas_navegacao)
 
 # ==========================================
-# ABA 1: CONSULTA + EDIÇÃO (ADMIN) + AVALIAÇÃO + EXCLUSÃO
+# ABA 1: CONSULTA + EDIÇÃO + AVALIAÇÃO + EXCLUSÃO
 # ==========================================
 with tabs[0]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
