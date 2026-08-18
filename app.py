@@ -10,7 +10,7 @@ import openai
 # ==========================================
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
-    page_icon="logo_dark.png",
+    page_icon="favicon.png",
     layout="wide"
 )
 
