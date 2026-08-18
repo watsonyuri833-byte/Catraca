@@ -579,7 +579,6 @@ with tabs[2]:
                     title="Ocorrências",
                     showgrid=True,
                     gridcolor='#21262d',
-                    tickdtick=1,
                     dtick=1
                 ),
                 yaxis=dict(
