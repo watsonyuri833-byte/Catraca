@@ -300,7 +300,7 @@ def fazer_login(email, password):
         st.session_state.user_role = role_ret
         st.session_state.user_avatar = avatar_ret
         st.session_state.favoritos = []
-        st.toast("Login realizado com sucesso!", icon="?")
+        st.toast("Login realizado com sucesso!")
         st.rerun()
     except Exception as e:
         st.error(f"Falha na autenticação: {e}")
@@ -323,7 +323,7 @@ def fazer_logout():
         if "supabase" in key.lower() or "auth" in key.lower():
             del st.session_state[key]
             
-    st.toast("Sessão encerrada com sucesso!", icon="??")
+    st.toast("Sessão encerrada com sucesso!")
     st.rerun()
 
 # --- TELA DE LOGIN OBRIGATÓRIA ---
@@ -372,7 +372,7 @@ with col_header_left:
         st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
 
 with col_header_right:
-    role_badge = f"[Admin]" if st.session_state.user_role == "Admin" else f"[Analista]"
+    role_badge = "[Admin]" if st.session_state.user_role == "Admin" else "[Analista]"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
     avatar_url = st.session_state.get("user_avatar", None)
     
@@ -409,7 +409,7 @@ with st.expander("Configurar / Alterar Foto de Perfil"):
                     except Exception:
                         pass
                     st.session_state.user_avatar = url_gerada
-                    st.toast("Foto de perfil alterada com sucesso!", icon="?")
+                    st.toast("Foto de perfil alterada com sucesso!")
                     st.rerun()
                 else:
                     st.error("Falha ao enviar a imagem.")
@@ -487,11 +487,11 @@ with tabs[0]:
                 if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
                     if is_fav:
                         st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                        st.toast("Removido dos favoritos!", icon="???")
+                        st.toast("Removido dos favoritos!")
                     else:
                         if ocor_id not in st.session_state.favoritos:
                             st.session_state.favoritos.append(ocor_id)
-                        st.toast("Adicionado aos favoritos com sucesso!", icon="?")
+                        st.toast("Adicionado aos favoritos com sucesso!")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
@@ -534,7 +534,7 @@ with tabs[0]:
                     if st.form_submit_button("Enviar Comentário"):
                         if novo_coment:
                             salvar_comentario(ocor_id, st.session_state.user.email, novo_coment)
-                            st.toast("Anotação adicionada!", icon="??")
+                            st.toast("Anotação adicionada!")
                             st.rerun()
 
                 if st.session_state.user_role == "Admin":
@@ -586,13 +586,13 @@ with tabs[0]:
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
-                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="?")
+                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!")
                                     st.rerun()
 
                     if st.button(f"Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
                         sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
                         if sucesso:
-                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="???")
+                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!")
                             st.rerun()
 
 # ==========================================
@@ -622,7 +622,7 @@ with tabs[1]:
             with st.expander(titulo_card_fav):
                 if st.button("Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
                     st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                    st.toast("Removido dos favoritos!", icon="???")
+                    st.toast("Removido dos favoritos!")
                     st.rerun()
                 
                 c1, c2, c3 = st.columns(3)
@@ -678,7 +678,7 @@ with tabs[indice_cad]:
                     "autor_email": st.session_state.user.email
                 }
                 salvar_ocorrencia_db(dados, st.session_state.user.email)
-                st.toast("Tratativa salva com sucesso!", icon="??")
+                st.toast("Tratativa salva com sucesso!")
                 st.rerun()
             else:
                 st.error("Preencha o problema, motivo e solução.")
