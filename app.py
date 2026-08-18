@@ -557,12 +557,26 @@ with tabs[2]:
                 text='count',
                 color_discrete_sequence=CORES_NEON
             )
-            fig_hw.update_traces(textposition='outside', textfont=dict(color='#e6edf3', size=13), width=0.45)
+            fig_hw.update_traces(
+                textposition='outside', 
+                textfont=dict(color='#e6edf3', size=13), 
+                width=0.45,
+                marker=dict(line=dict(color='#30363d', width=1.5)) # Adiciona borda nas barras
+            )
             fig_hw.update_layout(
-                showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9', family="Sans-Serif"), title_font=dict(size=16, color='#e6edf3'),
+                showlegend=False, 
+                paper_bgcolor='rgba(13, 17, 23, 0.6)', 
+                plot_bgcolor='rgba(13, 17, 23, 0.6)',
+                font=dict(color='#c9d1d9', family="Sans-Serif"), 
+                title_font=dict(size=16, color='#e6edf3'),
                 xaxis=dict(title="Ocorrências", showgrid=True, gridcolor='#21262d', dtick=1),
-                yaxis=dict(title="", showgrid=False), margin=dict(l=20, r=40, t=50, b=40)
+                yaxis=dict(title="", showgrid=False), 
+                margin=dict(l=20, r=40, t=50, b=40),
+                # Borda e cantos arredondados no container do gráfico
+                shapes=[dict(
+                    type="rect", xref="paper", yref="paper", x0=0, y0=0, x1=1, y1=1,
+                    line=dict(color="#30363d", width=1.5), fillcolor="rgba(0,0,0,0)"
+                )]
             )
             st.plotly_chart(fig_hw, use_container_width=True)
             
@@ -575,12 +589,24 @@ with tabs[2]:
                 title="<b>Distribuição por Sistema (Software)</b>", hole=0.55,
                 color_discrete_sequence=CORES_NEON
             )
-            fig_sist.update_traces(textinfo='percent+label', textfont=dict(color='#ffffff', size=12))
+            fig_sist.update_traces(
+                textinfo='percent+label', 
+                textfont=dict(color='#ffffff', size=12),
+                marker=dict(line=dict(color='#30363d', width=2)) # Adiciona borda nas fatias do donut
+            )
             fig_sist.update_layout(
-                showlegend=True, legend=dict(font=dict(color='#e6edf3'), orientation="h", y=-0.1),
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9', family="Sans-Serif"), title_font=dict(size=16, color='#e6edf3'),
-                margin=dict(l=20, r=20, t=50, b=40)
+                showlegend=True, 
+                legend=dict(font=dict(color='#e6edf3'), orientation="h", y=-0.1),
+                paper_bgcolor='rgba(13, 17, 23, 0.6)', 
+                plot_bgcolor='rgba(13, 17, 23, 0.6)',
+                font=dict(color='#c9d1d9', family="Sans-Serif"), 
+                title_font=dict(size=16, color='#e6edf3'),
+                margin=dict(l=20, r=20, t=50, b=40),
+                # Borda e cantos arredondados no container do gráfico
+                shapes=[dict(
+                    type="rect", xref="paper", yref="paper", x0=0, y0=0, x1=1, y1=1,
+                    line=dict(color="#30363d", width=1.5), fillcolor="rgba(0,0,0,0)"
+                )]
             )
             st.plotly_chart(fig_sist, use_container_width=True)
 
@@ -596,13 +622,12 @@ with tabs[3]:
     """)
     
     if not df_ocorrencias.empty:
-        # Monta o texto estruturado para a IA ler de forma limpa
         conteudo_ia = "BASE DE CONHECIMENTO TÉCNICO - ACTUAR.GROUP\n"
         conteudo_ia += "="*50 + "\n\n"
         
         for _, row in df_ocorrencias.iterrows():
             conteudo_ia += f"ID: #{row.get('id')}\n"
-            conteudo_ia += f"Sistema: {row.get('sistema')}\n"
+            conteudo_ia += f"Sistema: {row.get('sistema')}\n`"
             conteudo_ia += f"Equipamento: {row.get('equipamento')}\n"
             conteudo_ia += f"Status: {row.get('status')}\n"
             conteudo_ia += f"Problema (Sintoma): {row.get('problema')}\n"
