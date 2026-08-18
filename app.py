@@ -281,19 +281,12 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
+# 3. CONTROLE DE SESSÃO E LOGIN (ISOLADO POR USUÁRIO)
 # ==========================================
-if "user" not in st.session_state or st.session_state.user is None:
-    session = supabase.auth.get_session()
-    if session:
-        st.session_state.user = session.user
-        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
-        st.session_state.user_role = role_ret
-        st.session_state.user_avatar = avatar_ret
-    else:
-        st.session_state.user = None
-        st.session_state.user_role = "Analista"
-        st.session_state.user_avatar = None
+if "user" not in st.session_state:
+    st.session_state.user = None
+    st.session_state.user_role = "Analista"
+    st.session_state.user_avatar = None
 
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -332,7 +325,7 @@ def fazer_logout():
     st.toast("Sessão encerrada com sucesso!", icon="??")
     st.rerun()
 
-# --- TELA DE LOGIN ---
+# --- TELA DE LOGIN OBRIGATÓRIA ---
 if st.session_state.user is None:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
