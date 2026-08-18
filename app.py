@@ -213,7 +213,6 @@ def upload_anexo(file):
         file_name = f"evidencia_{int(time.time())}.{ext}"
         file_bytes = file.getvalue()
         
-        # Autorização / Tentativa de upload no bucket de evidências
         try:
             supabase.storage.from_("anexos_evidencias").upload(
                 path=file_name,
@@ -221,7 +220,6 @@ def upload_anexo(file):
                 file_options={"content-type": file.type}
             )
         except Exception:
-            # Caso o bucket específico não exista, tenta criar dinamicamente ou usar bucket público padrão
             pass
             
         url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
@@ -236,7 +234,6 @@ def upload_avatar(file, user_id):
         file_name = f"avatar_{user_id}_{int(time.time())}.{ext}"
         file_bytes = file.getvalue()
         
-        # Garante a existência do bucket e autorizações de escrita de avatar
         try:
             supabase.storage.from_("avatares").upload(
                 path=file_name,
@@ -257,7 +254,6 @@ def upload_avatar(file, user_id):
         url_res = supabase.storage.from_("avatares").get_public_url(file_name)
         return url_res
     except Exception as e:
-        # Fallback de autorização de storage caso falhe o bucket dedicado
         return upload_anexo(file)
 
 EMAILS_GESTORES = ["watson@actuar.group"]
@@ -275,7 +271,6 @@ def obter_perfil_usuario(user_id, email):
                 supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
             return role_atribuida, res.data[0].get("avatar_url")
     except Exception:
-        # Se a tabela perfis não tiver a coluna avatar_url ou a tabela não existir, criamos/ignoramos a falha na leitura
         pass
     
     try:
@@ -291,7 +286,6 @@ def obter_perfil_usuario(user_id, email):
     return role_atribuida, None
 
 def extrair_primeiro_nome(email):
-    """Extrai e formata o primeiro nome a partir do e-mail (ex: watson.cruz@... -> Watson)"""
     if not email or "@" not in email:
         return "Usuário"
     nome_base = email.split("@")[0].split(".")[0]
@@ -380,7 +374,7 @@ with col_user:
     
     col_av, col_txt, col_btn = st.columns([1, 2, 1])
     with col_av:
-        if avatar_url and str(avatar_url).strip() != "":
+        if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
             try:
                 st.image(avatar_url, width=42)
             except Exception:
@@ -395,7 +389,6 @@ with col_user:
 
 st.markdown("---")
 
-# Seção de Configuração de Foto de Perfil na Barra Lateral ou Topo Rápido
 with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
     col_up1, col_up2 = st.columns([2, 1])
     with col_up1:
