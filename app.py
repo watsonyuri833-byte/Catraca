@@ -348,7 +348,7 @@ if st.session_state.user is None:
     st.stop()
 
 # ==========================================
-# 4. CABEÇALHO E ESTRUTURA DE ABAS
+# 4. CABEÇALHO E ESTRUTURA DE ABAS (LAYOUT CORRIGIDO)
 # ==========================================
 LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
@@ -358,25 +358,29 @@ LISTA_HARDWARE = [
     "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
-col_logo, col_space, col_user = st.columns([3, 3, 4])
-with col_logo:
-    if os.path.exists("logo_dark.png"):
-        st.image("logo_dark.png", width=70)
-    elif os.path.exists("logo.png"):
-        st.image("logo.png", width=70)
-    st.title("actuar.group")
+# Layout unificado do cabeçalho alinhado ao topo à direita (conforme imagem)
+col_header_left, col_header_right = st.columns([6, 4])
 
-with col_user:
+with col_header_left:
+    col_img_logo, col_txt_logo = st.columns([1, 4])
+    with col_img_logo:
+        if os.path.exists("logo_dark.png"):
+            st.image("logo_dark.png", width=60)
+        elif os.path.exists("logo.png"):
+            st.image("logo.png", width=60)
+    with col_txt_logo:
+        st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
+
+with col_header_right:
     role_badge = f"🛡️ **{st.session_state.user_role}**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    
     avatar_url = st.session_state.get("user_avatar", None)
     
     col_av, col_txt, col_btn = st.columns([1, 2, 1])
     with col_av:
         if avatar_url and str(avatar_url).strip() != "" and not str(avatar_url).endswith("/None"):
             try:
-                st.image(avatar_url, width=42)
+                st.image(avatar_url, width=40)
             except Exception:
                 st.markdown("👤")
         else:
@@ -384,7 +388,7 @@ with col_user:
     with col_txt:
         st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
     with col_btn:
-        if st.button("🚪 Sair"):
+        if st.button("Sair"):
             fazer_logout()
 
 st.markdown("---")
@@ -857,4 +861,4 @@ if st.session_state.user_role == "Admin":
             else:
                 st.info("Nenhum histórico registrado no momento.")
         except Exception as e:
-            st.error(f"Erro ao carregar log: {e}")
+            st.error(f>Erro ao carregar log: {e}")
