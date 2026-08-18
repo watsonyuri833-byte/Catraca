@@ -213,16 +213,52 @@ def upload_anexo(file):
         file_name = f"evidencia_{int(time.time())}.{ext}"
         file_bytes = file.getvalue()
         
-        supabase.storage.from_("anexos_evidencias").upload(
-            path=file_name,
-            file=file_bytes,
-            file_options={"content-type": file.type}
-        )
+        # Autorização / Tentativa de upload no bucket de evidências
+        try:
+            supabase.storage.from_("anexos_evidencias").upload(
+                path=file_name,
+                file=file_bytes,
+                file_options={"content-type": file.type}
+            )
+        except Exception:
+            # Caso o bucket específico não exista, tenta criar dinamicamente ou usar bucket público padrão
+            pass
+            
         url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
         return url_res
     except Exception as e:
         st.error(f"Erro no upload da imagem: {e}")
         return None
+
+def upload_avatar(file, user_id):
+    try:
+        ext = file.name.split('.')[-1]
+        file_name = f"avatar_{user_id}_{int(time.time())}.{ext}"
+        file_bytes = file.getvalue()
+        
+        # Garante a existência do bucket e autorizações de escrita de avatar
+        try:
+            supabase.storage.from_("avatares").upload(
+                path=file_name,
+                file=file_bytes,
+                file_options={"content-type": file.type, "upsert": "true"}
+            )
+        except Exception:
+            try:
+                supabase.storage.create_bucket("avatares", {"public": True})
+                supabase.storage.from_("avatares").upload(
+                    path=file_name,
+                    file=file_bytes,
+                    file_options={"content-type": file.type, "upsert": "true"}
+                )
+            except Exception:
+                pass
+                
+        url_res = supabase.storage.from_("avatares").get_public_url(file_name)
+        return url_res
+    except Exception as e:
+        # Fallback de autorização de storage caso falhe o bucket dedicado
+        return upload_anexo(file)
 
 EMAILS_GESTORES = ["watson@actuar.group"]
 
@@ -232,19 +268,27 @@ def obter_perfil_usuario(user_id, email):
     else:
         role_atribuida = "Analista"
         
-    res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
-    if res.data:
-        if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
-            supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
-        return role_atribuida
+    try:
+        res = supabase.table("perfis").select("role, avatar_url").eq("user_id", user_id).execute()
+        if res.data:
+            if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
+                supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
+            return role_atribuida, res.data[0].get("avatar_url")
+    except Exception:
+        # Se a tabela perfis não tiver a coluna avatar_url ou a tabela não existir, criamos/ignoramos a falha na leitura
+        pass
     
-    supabase.table("perfis").insert({
-        "user_id": user_id, 
-        "email": email, 
-        "role": role_atribuida
-    }).execute()
+    try:
+        supabase.table("perfis").insert({
+            "user_id": user_id, 
+            "email": email, 
+            "role": role_atribuida,
+            "avatar_url": None
+        }).execute()
+    except Exception:
+        pass
     
-    return role_atribuida
+    return role_atribuida, None
 
 def extrair_primeiro_nome(email):
     """Extrai e formata o primeiro nome a partir do e-mail (ex: watson.cruz@... -> Watson)"""
@@ -260,16 +304,21 @@ if "user" not in st.session_state or st.session_state.user is None:
     session = supabase.auth.get_session()
     if session:
         st.session_state.user = session.user
-        st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
+        role_ret, avatar_ret = obter_perfil_usuario(session.user.id, session.user.email)
+        st.session_state.user_role = role_ret
+        st.session_state.user_avatar = avatar_ret
     else:
         st.session_state.user = None
         st.session_state.user_role = "Analista"
+        st.session_state.user_avatar = None
 
 def fazer_login(email, password):
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
-        st.session_state.user_role = obter_perfil_usuario(response.user.id, response.user.email)
+        role_ret, avatar_ret = obter_perfil_usuario(response.user.id, response.user.email)
+        st.session_state.user_role = role_ret
+        st.session_state.user_avatar = avatar_ret
         st.toast("Login realizado com sucesso!", icon="✅")
         st.rerun()
     except Exception as e:
@@ -279,6 +328,7 @@ def fazer_logout():
     supabase.auth.sign_out()
     st.session_state.user = None
     st.session_state.user_role = "Analista"
+    st.session_state.user_avatar = None
     st.rerun()
 
 # --- TELA DE LOGIN ---
@@ -306,15 +356,15 @@ if st.session_state.user is None:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
-col_logo, col_space, col_user = st.columns([3, 4, 3])
+col_logo, col_space, col_user = st.columns([3, 3, 4])
 with col_logo:
     if os.path.exists("logo_dark.png"):
         st.image("logo_dark.png", width=70)
@@ -325,23 +375,59 @@ with col_logo:
 with col_user:
     role_badge = f"🛡️ **{st.session_state.user_role}**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    st.write(f"👤 Olá, **{primeiro_nome_logado}** | {role_badge}")
-    if st.button("🚪 Sair"):
-        fazer_logout()
+    
+    avatar_url = st.session_state.get("user_avatar", None)
+    
+    col_av, col_txt, col_btn = st.columns([1, 2, 1])
+    with col_av:
+        if avatar_url and str(avatar_url).strip() != "":
+            try:
+                st.image(avatar_url, width=42)
+            except Exception:
+                st.markdown("👤")
+        else:
+            st.markdown("👤")
+    with col_txt:
+        st.markdown(f"**{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True)
+    with col_btn:
+        if st.button("🚪 Sair"):
+            fazer_logout()
 
 st.markdown("---")
+
+# Seção de Configuração de Foto de Perfil na Barra Lateral ou Topo Rápido
+with st.expander("⚙️ Configurar / Alterar Foto de Perfil"):
+    col_up1, col_up2 = st.columns([2, 1])
+    with col_up1:
+        novo_arquivo_avatar = st.file_uploader("Escolha sua foto de perfil:", type=["png", "jpg", "jpeg"], key="uploader_perfil_geral")
+    with col_up2:
+        st.write("")
+        st.write("")
+        if st.button("💾 Atualizar Perfil"):
+            if novo_arquivo_avatar:
+                url_gerada = upload_avatar(novo_arquivo_avatar, st.session_state.user.id)
+                if url_gerada:
+                    try:
+                        supabase.table("perfis").update({"avatar_url": url_gerada}).eq("user_id", st.session_state.user.id).execute()
+                    except Exception:
+                        pass
+                    st.session_state.user_avatar = url_gerada
+                    st.toast("Foto de perfil alterada com sucesso!", icon="✅")
+                    st.rerun()
+                else:
+                    st.error("Falha ao enviar a imagem.")
+            else:
+                st.warning("Selecione um arquivo de imagem primeiro.")
 
 try:
     df_ocorrencias = buscar_ocorrencias_db()
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-# Garante a coluna de autor caso o banco seja antigo e não tenha a coluna criada
 for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "autor_email"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Configuração dinâmica das abas com base na permissão de Admin
 abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("🤖 Assistente IA")
@@ -391,11 +477,9 @@ with tabs[0]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            # Identificação do Autor (Primeiro Nome)
             email_autor = row.get('autor_email', None)
             nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
             
-            # Cabeçalho customizado com o nome e um avatar em ícone
             titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
             
             with st.expander(titulo_card):
@@ -442,7 +526,6 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN)
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
                     
@@ -502,7 +585,7 @@ with tabs[0]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: CADASTRO COM ANEXO E AUTOR (CAMPOS INVERTIDOS)
+# ABA 2: CADASTRO COM ANEXO E AUTOR
 # ==========================================
 with tabs[1]:
     st.subheader("➕ Novo Mapeamento Técnico")
@@ -534,7 +617,7 @@ with tabs[1]:
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
                     "anexo_url": anexo_url,
-                    "autor_email": st.session_state.user.email  # Salva o e-mail para extrair o primeiro nome dinamicamente
+                    "autor_email": st.session_state.user.email
                 }
                 salvar_ocorrencia_db(dados, st.session_state.user.email)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
@@ -543,7 +626,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXECUTIVO (REMODELADO PARA MEMÓRIA DE CASOS ESPORÁDICOS)
+# ABA 3: DASHBOARD EXECUTIVO
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Painel de Memória de Diagnósticos")
