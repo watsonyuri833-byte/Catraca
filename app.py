@@ -283,11 +283,11 @@ def extrair_primeiro_nome(email):
 
 def obter_icone_status(status):
     if status == "Solução Definitiva":
-        return "??"
+        return "🟢"
     elif status == "Contorno / Paliativo":
-        return "??"
+        return "🟡"
     else:
-        return "??"
+        return "🔴"
 
 # ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN
@@ -487,9 +487,9 @@ with tabs[0]:
             nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
             
             is_fav = ocor_id in st.session_state.favoritos
-            icone_fav = "? " if is_fav else ""
+            icone_fav = "⭐ " if is_fav else ""
             icone_status = obter_icone_status(status)
-            texto_botao_fav = "? Remover dos Favoritos" if is_fav else "? Favoritar Chamado"
+            texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
             titulo_card = f"{icone_fav}[{icone_status} {status}] {sist} + {hw} — {prob}  |  Relatado por: {nome_autor}"
             
@@ -526,11 +526,11 @@ with tabs[0]:
                 col_v1, col_v2, col_space = st.columns([1, 1, 4])
                 
                 with col_v1:
-                    if st.button(f"?? Funcionou ({v_pos})", key=f"pos_{ocor_id}"):
+                    if st.button(f"👍 Funcionou ({v_pos})", key=f"pos_{ocor_id}"):
                         computar_voto(ocor_id, "pos", v_pos)
                         st.rerun()
                 with col_v2:
-                    if st.button(f"?? Não funcionou ({v_neg})", key=f"neg_{ocor_id}"):
+                    if st.button(f"👎 Não funcionou ({v_neg})", key=f"neg_{ocor_id}"):
                         computar_voto(ocor_id, "neg", v_neg)
                         st.rerun()
 
@@ -599,7 +599,7 @@ with tabs[0]:
                                     st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!")
                                     st.rerun()
 
-                    if st.button(f"??? Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
+                    if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
                         sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
                         if sucesso:
                             st.toast(f"Tratativa #{ocor_id} excluída com sucesso!")
@@ -609,7 +609,7 @@ with tabs[0]:
 # ABA 2: MEUS FAVORITOS
 # ==========================================
 with tabs[1]:
-    st.subheader("? Meus Chamados Frequentes & Favoritos")
+    st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
     st.caption("Acesse rapidamente os problemas que você mais resolve.")
     
     if not st.session_state.favoritos or df_ocorrencias.empty:
@@ -628,10 +628,10 @@ with tabs[1]:
             anexo = row.get('anexo_url', None)
             
             icone_status = obter_icone_status(status)
-            titulo_card_fav = f"? [{icone_status} {status}] {sist} + {hw} — {prob}"
+            titulo_card_fav = f"⭐ [{icone_status} {status}] {sist} + {hw} — {prob}"
             
             with st.expander(titulo_card_fav):
-                if st.button("? Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
+                if st.button("⭐ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
                     st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
                     st.toast("Removido dos favoritos!")
                     st.rerun()
@@ -700,7 +700,7 @@ with tabs[indice_cad]:
 if st.session_state.user_role == "Admin" and "Assistente IA" in abas_navegacao:
     indice_ia = abas_navegacao.index("Assistente IA")
     with tabs[indice_ia]:
-        st.subheader("?? Assistente Virtual de Diagnóstico Avançado (IA)")
+        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
         st.caption("Descreva cenários inéditos ou dúvidas de campo.")
         
         pergunta_tecnico = st.text_area(
@@ -759,7 +759,7 @@ if st.session_state.user_role == "Admin" and "Assistente IA" in abas_navegacao:
 if st.session_state.user_role == "Admin" and "Audit Log" in abas_navegacao:
     indice_audit = abas_navegacao.index("Audit Log")
     with tabs[indice_audit]:
-        st.subheader("?? Histórico de Auditoria (Audit Log)")
+        st.subheader("📋 Histórico de Auditoria (Audit Log)")
         st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
         
         try:
