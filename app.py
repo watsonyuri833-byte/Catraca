@@ -5,9 +5,6 @@ import os
 import time
 import openai
 
-# ==========================================
-# 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
-# ==========================================
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
     page_icon="🛠️",
@@ -16,119 +13,24 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Fundo Principal em Gradiente Escuro */
-    .stApp { 
-        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important; 
-        color: #c9d1d9 !important;
-    }
-    
-    /* Textos Globais, Rótulos (Labels) e Títulos */
-    .stApp p, .stApp label, .stApp span, h1, h2, h3, h4, h5, h6 {
-        color: #e6edf3 !important;
-    }
-    
-    /* CORREÇÃO DEFINITIVA DOS CAMPOS DE INPUT, SELECTBOX E TEXTAREA */
-    div[data-baseweb="input"],
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="select"],
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="select"] * {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-    }
-
-    /* Input interno de texto e select */
-    .stApp input, 
-    .stApp textarea, 
-    .stApp select,
-    div[role="combobox"] {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-        border-color: #30363d !important;
-    }
-
-    /* Borda e Container das Caixas de Texto */
-    div[data-baseweb="input"], div[data-baseweb="select"] {
-        border: 1px solid #30363d !important;
-        border-radius: 8px !important;
-    }
-    
-    /* Foco nos Campos de Entrada (Hover / Active) */
-    div[data-baseweb="input"]:focus-within,
-    div[data-baseweb="select"]:focus-within,
-    textarea:focus {
-        border-color: #58a6ff !important;
-        box-shadow: 0 0 0 1px #58a6ff !important;
-    }
-
-    /* Cor dos Placeholders (Texto de exemplo) */
-    ::placeholder, input::placeholder, textarea::placeholder {
-        color: #8b949e !important;
-        opacity: 1 !important;
-    }
-
-    /* Menus Suspensos / Dropdowns Abertos */
-    ul[role="listbox"], ul[role="listbox"] li {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-    }
-
-    /* Área de Upload de Arquivos (File Uploader) */
-    [data-testid="stFileUploader"] {
-        background-color: #161b22 !important;
-        border: 1px dashed #30363d !important;
-        border-radius: 8px !important;
-        padding: 10px;
-    }
-    
-    /* Botões Customizados */
-    .stButton>button {
-        border-radius: 8px !important;
-        border: 1px solid #30363d !important;
-        background-color: #21262d !important;
-        color: #c9d1d9 !important;
-        font-weight: 500 !important;
-        transition: all 0.2s !important;
-    }
-    .stButton>button:hover {
-        border-color: #58a6ff !important;
-        color: #58a6ff !important;
-        background-color: #30363d !important;
-        box-shadow: 0 0 10px rgba(88, 166, 255, 0.2) !important;
-    }
-    
-    /* Expanders / Acordeões */
-    .streamlit-expanderHeader {
-        background-color: #161b22 !important;
-        border-radius: 8px !important;
-        border: 1px solid #30363d !important;
-        color: #e6edf3 !important;
-    }
-    
-    /* Estilização das Abas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        border-bottom: 1px solid #30363d;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #161b22 !important;
-        border-radius: 8px 8px 0px 0px !important;
-        border: 1px solid #30363d !important;
-        border-bottom: none !important;
-        padding: 8px 16px !important;
-        color: #8b949e !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #21262d !important;
-        color: #58a6ff !important;
-        border-top: 2px solid #58a6ff !important;
-    }
+    .stApp { background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important; color: #c9d1d9 !important; }
+    .stApp p, .stApp label, .stApp span, h1, h2, h3, h4, h5, h6 { color: #e6edf3 !important; }
+    div[data-baseweb="input"], div[data-baseweb="input"] > div, div[data-baseweb="select"], div[data-baseweb="select"] > div, div[data-baseweb="select"] * { background-color: #161b22 !important; color: #f0f6fc !important; }
+    .stApp input, .stApp textarea, .stApp select, div[role="combobox"] { background-color: #161b22 !important; color: #f0f6fc !important; border-color: #30363d !important; }
+    div[data-baseweb="input"], div[data-baseweb="select"] { border: 1px solid #30363d !important; border-radius: 8px !important; }
+    div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within, textarea:focus { border-color: #58a6ff !important; box-shadow: 0 0 0 1px #58a6ff !important; }
+    ::placeholder, input::placeholder, textarea::placeholder { color: #8b949e !important; opacity: 1 !important; }
+    ul[role="listbox"], ul[role="listbox"] li { background-color: #161b22 !important; color: #f0f6fc !important; }
+    [data-testid="stFileUploader"] { background-color: #161b22 !important; border: 1px dashed #30363d !important; border-radius: 8px !important; padding: 10px; }
+    .stButton>button { border-radius: 8px !important; border: 1px solid #30363d !important; background-color: #21262d !important; color: #c9d1d9 !important; font-weight: 500 !important; transition: all 0.2s !important; }
+    .stButton>button:hover { border-color: #58a6ff !important; color: #58a6ff !important; background-color: #30363d !important; box-shadow: 0 0 10px rgba(88, 166, 255, 0.2) !important; }
+    .streamlit-expanderHeader { background-color: #161b22 !important; border-radius: 8px !important; border: 1px solid #30363d !important; color: #e6edf3 !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; border-bottom: 1px solid #30363d; }
+    .stTabs [data-baseweb="tab"] { background-color: #161b22 !important; border-radius: 8px 8px 0px 0px !important; border: 1px solid #30363d !important; border-bottom: none !important; padding: 8px 16px !important; color: #8b949e !important; }
+    .stTabs [aria-selected="true"] { background-color: #21262d !important; color: #58a6ff !important; border-top: 2px solid #58a6ff !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. CONEXÃO E BANCO DE DADOS
-# ==========================================
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -143,11 +45,7 @@ def buscar_ocorrencias_db():
 
 def registrar_log(usuario_email, acao, detalhes):
     try:
-        supabase.table("audit_logs").insert({
-            "usuario_email": usuario_email,
-            "acao": acao,
-            "detalhes": detalhes
-        }).execute()
+        supabase.table("audit_logs").insert({"usuario_email": usuario_email, "acao": acao, "detalhes": detalhes}).execute()
     except Exception as e:
         print(f"Erro ao registrar log: {e}")
 
@@ -168,14 +66,12 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
     try:
         supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
         res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-        
         if res.data and len(res.data) > 0:
             registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
             return True
         else:
             st.error("O banco bloqueou a exclusão. Verifique se o RLS está liberado no Supabase.")
             return False
-            
     except Exception as e:
         st.error(f"Erro ao excluir no Supabase: {e}")
         return False
@@ -190,14 +86,9 @@ def buscar_comentarios(ocorrencia_id):
     return res.data
 
 def salvar_comentario(ocorrencia_id, usuario, texto):
-    supabase.table("comentarios").insert({
-        "ocorrencia_id": ocorrencia_id,
-        "usuario": usuario,
-        "comentario": texto
-    }).execute()
+    supabase.table("comentarios").insert({"ocorrencia_id": ocorrencia_id, "usuario": usuario, "comentario": texto}).execute()
 
 def extrair_url_publica(res):
-    """Função auxiliar robusta para extrair a string da URL pública do Supabase"""
     if not res:
         return None
     if isinstance(res, str):
@@ -215,12 +106,10 @@ def upload_anexo(file):
         ext = file.name.split('.')[-1]
         file_name = f"evidencia_{int(time.time())}.{ext}"
         file_bytes = file.getvalue()
-        
         try:
             supabase.storage.create_bucket("anexos_evidencias", {"public": True})
         except Exception:
             pass
-            
         try:
             supabase.storage.from_("anexos_evidencias").upload(
                 path=file_name,
@@ -229,7 +118,6 @@ def upload_anexo(file):
             )
         except Exception:
             pass
-            
         res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
         return extrair_url_publica(res)
     except Exception as e:
@@ -243,7 +131,6 @@ def obter_perfil_usuario(user_id, email):
         role_atribuida = "Admin"
     else:
         role_atribuida = "Analista"
-        
     try:
         res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
         if res.data:
@@ -252,27 +139,17 @@ def obter_perfil_usuario(user_id, email):
             return role_atribuida
     except Exception:
         pass
-    
     try:
-        supabase.table("perfis").insert({
-            "user_id": user_id, 
-            "email": email, 
-            "role": role_atribuida
-        }).execute()
+        supabase.table("perfis").insert({"user_id": user_id, "email": email, "role": role_atribuida}).execute()
     except Exception:
         pass
-    
     return role_atribuida
 
 def extrair_primeiro_nome(email):
     if not email or "@" not in email:
         return "Usuário"
-    nome_base = email.split("@")[0].split(".")[0]
-    return nome_base.capitalize()
+    return email.split("@")[0].split(".")[0].capitalize()
 
-# ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
-# ==========================================
 if "user" not in st.session_state or st.session_state.user is None:
     session = supabase.auth.get_session()
     if session:
@@ -298,7 +175,6 @@ def fazer_logout():
     st.session_state.user_role = "Analista"
     st.rerun()
 
-# --- TELA DE LOGIN ---
 if st.session_state.user is None:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -306,10 +182,8 @@ if st.session_state.user is None:
             st.image("logo_dark.png", width=90)
         elif os.path.exists("logo.png"):
             st.image("logo.png", width=90)
-            
         st.title("actuar.group")
         st.subheader("🔐 Central Técnica de Suporte")
-        
         with st.form("login_form"):
             email_input = st.text_input("E-mail:")
             password_input = st.text_input("Senha:", type="password")
@@ -320,9 +194,6 @@ if st.session_state.user is None:
                     st.warning("Preencha e-mail e senha.")
     st.stop()
 
-# ==========================================
-# 4. CABEÇALHO E ESTRUTURA DE ABAS
-# ==========================================
 LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
@@ -346,7 +217,6 @@ with col_header_left:
 with col_header_right:
     role_badge = f"🛡️ **{st.session_state.user_role}**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    
     col_av, col_txt, col_btn = st.columns([1, 2, 1])
     with col_av:
         st.markdown("👤")
@@ -467,7 +337,6 @@ with tabs[0]:
 
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
-                    
                     with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
                         with st.form(key=f"form_edit_{ocor_id}"):
                             edit_col1, edit_col2 = st.columns(2)
@@ -500,7 +369,6 @@ with tabs[0]:
 
                             if st.form_submit_button("💾 Salvar Alterações"):
                                 nova_url_anexo = upload_anexo(edit_anexo) if edit_anexo else anexo
-                                
                                 dados_novos = {
                                     "sistema": edit_sist,
                                     "equipamento": edit_hw,
@@ -512,7 +380,6 @@ with tabs[0]:
                                     "tempo_estimado": edit_tempo,
                                     "anexo_url": nova_url_anexo
                                 }
-                                
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
                                     st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
                                     st.rerun()
@@ -568,6 +435,95 @@ with tabs[1]:
 # ABA 3: ASSISTENTE IA (EXCLUSIVO ADMIN)
 # ==========================================
 if st.session_state.user_role == "Admin":
-    indice_ia = 2 if "🤖 Assistente IA" in abas_navegacao else 0
-    # Como as abas dependem do perfil, ajustamos dinamicamente caso o índice mude
-    # Vamos recriar as abas de forma segura checando a lista de abas ativas
+    indice_ia = abas_navegacao.index("🤖 Assistente IA")
+    with tabs[indice_ia]:
+        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
+        st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
+        
+        pergunta_tecnico = st.text_area(
+            "Descreva detalhadamente o sintoma do problema:", 
+            placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
+        )
+        
+        if st.button("🔍 Gerar Diagnóstico com IA"):
+            if not pergunta_tecnico.strip():
+                st.warning("Por favor, descreva o problema antes de consultar a IA.")
+            elif df_ocorrencias.empty:
+                st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
+            elif "OPENAI_API_KEY" not in st.secrets:
+                st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
+            else:
+                with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
+                    try:
+                        contexto_base = ""
+                        for _, row in df_ocorrencias.iterrows():
+                            contexto_base += f"""
+                            - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
+                              Problema: {row.get('problema')}
+                              Causa Raiz: {row.get('motivo')}
+                              Solução Aplicada: {row.get('solucao')}
+                            ------------------------------------
+                            """
+
+                        prompt_sistema = f"""
+                        Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
+                        Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
+                        Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
+                        {contexto_base}
+                        Diretrizes para a sua resposta:
+                        1. Analise o relato do técnico.
+                        2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
+                        3. Forneça uma resposta estruturada contendo:
+                           - **Causas Prováveis**
+                           - **Passo a Passo de Investigação**
+                           - **Recomendações/Ações Imediatas**
+                        4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
+                        5. Mantenha um tom profissional, direto e técnico.
+                        """
+
+                        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": prompt_sistema},
+                                {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
+                            ],
+                            temperature=0.3
+                        )
+
+                        diagnostico_ia = response.choices[0].message.content
+
+                        st.markdown("---")
+                        st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
+                        st.info(diagnostico_ia)
+
+                    except Exception as e:
+                        st.error(f"Erro ao processar chamada na IA: {e}")
+
+# ==========================================
+# ABA 4: AUDIT LOG (EXCLUSIVO ADMIN)
+# ==========================================
+if st.session_state.user_role == "Admin":
+    indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
+    with tabs[indice_audit]:
+        st.subheader("📜 Histórico de Auditoria (Audit Log)")
+        st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
+        
+        try:
+            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
+            df_logs = pd.DataFrame(res_logs.data)
+            if not df_logs.empty:
+                st.dataframe(
+                    df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
+                    column_config={
+                        "created_at": "Data/Hora",
+                        "usuario_email": "Usuário",
+                        "acao": "Ação",
+                        "detalhes": "Detalhamento"
+                    },
+                    use_container_width=True
+                )
+            else:
+                st.info("Nenhum histórico registrado no momento.")
+        except Exception as e:
+            st.error(f"Erro ao carregar log: {e}")
