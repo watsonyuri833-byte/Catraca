@@ -4,6 +4,7 @@ import plotly.express as px
 from supabase import create_client, Client
 import os
 import time
+import openai
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
@@ -423,13 +424,10 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # ==========================================
                 # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN)
-                # ==========================================
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
                     
-                    # Formulário Expansível de Edição
                     with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
                         with st.form(key=f"form_edit_{ocor_id}"):
                             edit_col1, edit_col2 = st.columns(2)
@@ -479,7 +477,6 @@ with tabs[0]:
                                     st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
                                     st.rerun()
 
-                    # Botão de Exclusão
                     if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
                         sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
                         if sucesso:
@@ -545,7 +542,6 @@ with tabs[2]:
         st.markdown("---")
         g1, g2 = st.columns(2)
         
-        # Paleta de cores vibrantes para o tema escuro
         CORES_NEON = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4']
         
         with g1:
@@ -620,32 +616,78 @@ with tabs[2]:
             st.plotly_chart(fig_sist, use_container_width=True)
 
 # ==========================================
-# ABA 4: ASSISTENTE IA
+# ABA 4: ASSISTENTE IA (GERAÇÃO DE DIAGNÓSTICOS AVANÇADOS)
 # ==========================================
 with tabs[3]:
-    st.subheader("🤖 Assistente Virtual de Diagnóstico")
-    pergunta_tecnico = st.text_input("Descreva o problema enfrentado:", placeholder="Ex: Catraca não abre e perdeu conexão na porta serial")
+    st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
+    st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
     
-    if pergunta_tecnico and not df_ocorrencias.empty:
-        palavras = pergunta_tecnico.lower().split()
-        matches = []
-        for _, row in df_ocorrencias.iterrows():
-            texto = f"{row['problema']} {row['motivo']} {row['equipamento']} {row['sistema']}".lower()
-            score = sum(1 for p in palavras if p in texto)
-            if score > 0:
-                matches.append((score, row))
-        
-        matches.sort(key=lambda x: x[0], reverse=True)
-        if matches:
-            top_match = matches[0][1]
-            st.markdown("### 💡 Diagnóstico Sugerido:")
-            st.info(f"**Causa Provável:** {top_match['motivo']}")
-            st.success(f"**Procedimento Recomendado:** {top_match['solucao']}")
+    pergunta_tecnico = st.text_area(
+        "Descreva detalhadamente o sintoma do problema:", 
+        placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
+    )
+    
+    if st.button("🔍 Gerar Diagnóstico com IA"):
+        if not pergunta_tecnico.strip():
+            st.warning("Por favor, descreva o problema antes de consultar a IA.")
+        elif df_ocorrencias.empty:
+            st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
+        elif "OPENAI_API_KEY" not in st.secrets:
+            st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
         else:
-            st.warning("Nenhum procedimento exato encontrado para essa busca.")
+            with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
+                try:
+                    # Compila o contexto com base na tabela do Supabase
+                    contexto_base = ""
+                    for _, row in df_ocorrencias.iterrows():
+                        contexto_base += f"""
+                        - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
+                          Problema: {row.get('problema')}
+                          Causa Raiz: {row.get('motivo')}
+                          Solução Aplicada: {row.get('solucao')}
+                        ------------------------------------
+                        """
+
+                    prompt_sistema = f"""
+                    Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
+                    Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
+
+                    Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
+                    {contexto_base}
+
+                    Diretrizes para a sua resposta:
+                    1. Analise o relato do técnico.
+                    2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
+                    3. Forneça uma resposta estruturada contendo:
+                       - **Causas Prováveis**
+                       - **Passo a Passo de Investigação**
+                       - **Recomendações/Ações Imediatas**
+                    4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
+                    5. Mantenha um tom profissional, direto e técnico.
+                    """
+
+                    # A chave é lida de st.secrets["OPENAI_API_KEY"]
+                    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": prompt_sistema},
+                            {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
+                        ],
+                        temperature=0.3
+                    )
+
+                    diagnostico_ia = response.choices[0].message.content
+
+                    st.markdown("---")
+                    st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
+                    st.info(diagnostico_ia)
+
+                except Exception as e:
+                    st.error(f"Erro ao processar chamada na IA: {e}")
 
 # ==========================================
-# ABA 5: AUDIT LOG
+# ABA 5: AUDIT LOG (ADMIN)
 # ==========================================
 if st.session_state.user_role == "Admin" and len(tabs) > 4:
     with tabs[4]:
