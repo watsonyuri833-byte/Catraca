@@ -155,6 +155,62 @@ def salvar_ocorrencia_db(dados, usuario_email):
     supabase.table("ocorrencias").insert(dados).execute()
     registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
 
+def processar_importacao_txt(file_bytes, usuario_email):
+    try:
+        try:
+            texto = file_bytes.decode("utf-8")
+        except Exception:
+            texto = file_bytes.decode("latin-1")
+            
+        blocos = texto.split("=== OCORRÊNCIA")
+        importadas = 0
+        
+        for bloco in blocos:
+            if not bloco.strip():
+                continue
+            
+            linhas = bloco.split("\n")
+            sistema = "Não se aplica / Geral"
+            equipamento = "Outro Hardware"
+            problema = ""
+            motivo = ""
+            solucao = ""
+            
+            for linha in linhas:
+                l = linha.strip()
+                if l.startswith("Sistema:"):
+                    sistema = l.replace("Sistema:", "").strip()
+                elif l.startswith("Tipo de Catraca / Hardware:") or l.startswith("Equipamento:"):
+                    equipamento = l.split(":", 1)[1].strip()
+                elif l.startswith("Problema (Sintoma):") or l.startswith("Problema:"):
+                    problema = l.split(":", 1)[1].strip()
+                elif l.startswith("Motivo (Causa Raiz):") or l.startswith("Motivo:"):
+                    motivo = l.split(":", 1)[1].strip()
+                elif l.startswith("Solução:") or l.startswith("Solução Recomendada:"):
+                    solucao = l.split(":", 1)[1].strip()
+                    
+            if problema or solucao:
+                dados = {
+                    "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
+                    "equipamento": equipamento if equipamento in LISTA_HARDWARE else "Outro Hardware",
+                    "problema": problema or "Ocorrência importada via TXT",
+                    "motivo": motivo or "Não informado",
+                    "solucao": solucao or "Não informada",
+                    "status": "🟢 Solução Definitiva",
+                    "nivel": "N1 - Fácil / Rápido",
+                    "tempo_estimado": "15 minutos",
+                    "autor_email": usuario_email
+                }
+                supabase.table("ocorrencias").insert(dados).execute()
+                importadas += 1
+                
+        if importadas > 0:
+            registrar_log(usuario_email, "IMPORTOU", f"Importou {importadas} ocorrências via arquivo TXT.")
+        return importadas
+    except Exception as e:
+        st.error(f"Erro ao processar importação do arquivo TXT: {e}")
+        return 0
+
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
     try:
         supabase.table("ocorrencias").update(dados_atualizados).eq("id", ocorrencia_id).execute()
@@ -410,7 +466,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
 # Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
-    abas_navegacao.append("📥 Exportar Banco (TXT)")
+    abas_navegacao.append("📥 Importar & Exportar (TXT)")
     abas_navegacao.append("📜 Audit Log (Gestão)")
 
 tabs = st.tabs(abas_navegacao)
@@ -690,14 +746,32 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 4: EXPORTAR BANCO EM TXT (EXCLUSIVO ADMIN)
+# ABA 4: IMPORTAR & EXPORTAR BANCO EM TXT (EXCLUSIVO ADMIN)
 # ==========================================
-if st.session_state.user_role == "Admin" and "📥 Exportar Banco (TXT)" in abas_navegacao:
-    indice_export = abas_navegacao.index("📥 Exportar Banco (TXT)")
+if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in abas_navegacao:
+    indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
     with tabs[indice_export]:
-        st.subheader("📥 Exportar Base de Conhecimento (.TXT)")
-        st.caption("Baixe todo o histórico do banco de dados contendo sistema, tipo de catraca, problema, motivo e solução para enviar a outras IAs.")
+        st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
+        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico do banco de dados[cite: 2].")
         
+        st.markdown("### 📤 Importar Ocorrências em Lote")
+        with st.form("form_import_txt"):
+            arquivo_txt = st.file_uploader("Selecione o arquivo .TXT estruturado:", type=["txt"])
+            submitted_import = st.form_submit_button("🚀 Processar e Importar Ocorrências")
+            if submitted_import:
+                if arquivo_txt is not None:
+                    qtd = processar_importacao_txt(arquivo_txt.getvalue(), st.session_state.user.email)
+                    if qtd > 0:
+                        st.success(f"{qtd} ocorrências foram importadas e cadastradas com sucesso!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("Nenhuma ocorrência válida foi encontrada no arquivo.")
+                else:
+                    st.warning("Por favor, envie um arquivo .TXT válido.")
+        
+        st.markdown("---")
+        st.markdown("### 📥 Exportar Base Completa")
         if df_ocorrencias.empty:
             st.info("O banco de dados de ocorrências está vazio.")
         else:
