@@ -332,8 +332,10 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo", "🤖 Assistente IA"]
+# Configuração dinâmica das abas com base na permissão de Admin
+abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo"]
 if st.session_state.user_role == "Admin":
+    abas_navegacao.append("🤖 Assistente IA")
     abas_navegacao.append("📜 Audit Log (Gestão)")
 
 tabs = st.tabs(abas_navegacao)
@@ -561,8 +563,8 @@ with tabs[2]:
             fig_hw.update_traces(
                 textposition='outside', 
                 textfont=dict(color='#e6edf3', size=13), 
-                width=0.35, # Barras mais finas e elegantes
-                marker=dict(line=dict(width=0)) # Sem borda quadriculada
+                width=0.35,
+                marker=dict(line=dict(width=0))
             )
             fig_hw.update_layout(
                 showlegend=False, 
@@ -583,13 +585,13 @@ with tabs[2]:
             
             fig_sist = px.pie(
                 df_sist, names='sistema', values='count',
-                hole=0.65, # Rosca moderna
+                hole=0.65,
                 color_discrete_sequence=CORES_NEON
             )
             fig_sist.update_traces(
                 textinfo='percent+label', 
                 textfont=dict(color='#ffffff', size=12),
-                marker=dict(line=dict(color='#161b22', width=2)) # Separação sutil entre fatias
+                marker=dict(line=dict(color='#161b22', width=2))
             )
             fig_sist.update_layout(
                 showlegend=False, 
@@ -602,79 +604,82 @@ with tabs[2]:
             st.plotly_chart(fig_sist, use_container_width=True)
 
 # ==========================================
-# ABA 4: ASSISTENTE IA (GERAÇÃO DE DIAGNÓSTICOS AVANÇADOS)
+# ABA 4: ASSISTENTE IA (EXCLUSIVO ADMIN)
 # ==========================================
-with tabs[3]:
-    st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
-    st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
-    
-    pergunta_tecnico = st.text_area(
-        "Descreva detalhadamente o sintoma do problema:", 
-        placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
-    )
-    
-    if st.button("🔍 Gerar Diagnóstico com IA"):
-        if not pergunta_tecnico.strip():
-            st.warning("Por favor, descreva o problema antes de consultar a IA.")
-        elif df_ocorrencias.empty:
-            st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
-        elif "OPENAI_API_KEY" not in st.secrets:
-            st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
-        else:
-            with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
-                try:
-                    contexto_base = ""
-                    for _, row in df_ocorrencias.iterrows():
-                        contexto_base += f"""
-                        - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
-                          Problema: {row.get('problema')}
-                          Causa Raiz: {row.get('motivo')}
-                          Solução Aplicada: {row.get('solucao')}
-                        ------------------------------------
+if st.session_state.user_role == "Admin":
+    with tabs[3]:
+        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
+        st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
+        
+        pergunta_tecnico = st.text_area(
+            "Descreva detalhadamente o sintoma do problema:", 
+            placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
+        )
+        
+        if st.button("🔍 Gerar Diagnóstico com IA"):
+            if not pergunta_tecnico.strip():
+                st.warning("Por favor, descreva o problema antes de consultar a IA.")
+            elif df_ocorrencias.empty:
+                st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
+            elif "OPENAI_API_KEY" not in st.secrets:
+                st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
+            else:
+                with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
+                    try:
+                        contexto_base = ""
+                        for _, row in df_ocorrencias.iterrows():
+                            contexto_base += f"""
+                            - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
+                              Problema: {row.get('problema')}
+                              Causa Raiz: {row.get('motivo')}
+                              Solução Aplicada: {row.get('solucao')}
+                            ------------------------------------
+                            """
+
+                        prompt_sistema = f"""
+                        Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
+                        Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
+
+                        Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
+                        {contexto_base}
+
+                        Diretrizes para a sua resposta:
+                        1. Analise o relato do técnico.
+                        2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
+                        3. Forneça uma resposta estruturada contendo:
+                           - **Causas Prováveis**
+                           - **Passo a Passo de Investigação**
+                           - **Recomendações/Ações Imediatas**
+                        4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
+                        5. Mantenha um tom profissional, direto e técnico.
                         """
 
-                    prompt_sistema = f"""
-                    Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
-                    Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
+                        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": prompt_sistema},
+                                {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
+                            ],
+                            temperature=0.3
+                        )
 
-                    Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
-                    {contexto_base}
+                        diagnostico_ia = response.choices[0].message.content
 
-                    Diretrizes para a sua resposta:
-                    1. Analise o relato do técnico.
-                    2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
-                    3. Forneça uma resposta estruturada contendo:
-                       - **Causas Prováveis**
-                       - **Passo a Passo de Investigação**
-                       - **Recomendações/Ações Imediatas**
-                    4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
-                    5. Mantenha um tom profissional, direto e técnico.
-                    """
+                        st.markdown("---")
+                        st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
+                        st.info(diagnostico_ia)
 
-                    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": prompt_sistema},
-                            {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
-                        ],
-                        temperature=0.3
-                    )
-
-                    diagnostico_ia = response.choices[0].message.content
-
-                    st.markdown("---")
-                    st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
-                    st.info(diagnostico_ia)
-
-                except Exception as e:
-                    st.error(f"Erro ao processar chamada na IA: {e}")
+                    except Exception as e:
+                        st.error(f"Erro ao processar chamada na IA: {e}")
 
 # ==========================================
-# ABA 5: AUDIT LOG (ADMIN)
+# ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
 # ==========================================
-if st.session_state.user_role == "Admin" and len(tabs) > 4:
-    with tabs[4]:
+if st.session_state.user_role == "Admin":
+    # Como a aba de IA existe para admin, o índice da aba de logs passa a ser o índice 4
+    indice_audit = 4 if "🤖 Assistente IA" in abas_navegacao else 1
+    with tabs[indice_audit]:
         st.subheader("📜 Histórico de Auditoria (Audit Log)")
         st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
         
