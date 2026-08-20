@@ -723,7 +723,7 @@ with tabs[0]:
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
                             edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
                             
-                            st.markdown("### 🛠️ Editar Passos e Anexos (Múltiplos por Passo)")
+                            st.markdown("### 🛠️ Editar Passos, Excluir Imagens e Adicionar Novas")
                             
                             passos_atuais = []
                             try:
@@ -740,16 +740,40 @@ with tabs[0]:
                                 p_obj = next((x for x in passos_atuais if x.get("passo") == p_num), {"texto": "", "anexo": None})
                                 st.markdown(f"**Passo {p_num}**")
                                 e_txt = st.text_area(f"Texto do Passo {p_num}:", value=p_obj.get("texto", ""), key=f"edit_p_txt_{ocor_id}_{p_num}")
+                                
+                                # Gerenciamento individual de imagens existentes (Permite excluir desmarcando)
+                                anexo_atual_passo = p_obj.get("anexo")
+                                urls_existentes = [u.strip() for u in str(anexo_atual_passo).split(",") if u.strip()] if anexo_atual_passo and pd.notna(anexo_atual_passo) else []
+                                
+                                urls_para_manter = []
+                                if urls_existentes:
+                                    st.markdown("📷 *Imagens atuais (desmarque para excluir individualmente):*")
+                                    for idx_img, url_img in enumerate(urls_existentes):
+                                        nome_arq = url_img.split("/")[-1].split("?")[0]
+                                        col_prev, col_chk = st.columns([3, 1])
+                                        with col_prev:
+                                            if url_img.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                                                try:
+                                                    st.image(url_img, width=150)
+                                                except Exception:
+                                                    st.markdown(f"📄 {nome_arq}")
+                                            else:
+                                                st.markdown(f"📄 {nome_arq}")
+                                        with col_chk:
+                                            manter_img = st.checkbox("Manter", value=True, key=f"manter_{ocor_id}_{p_num}_{idx_img}")
+                                            if manter_img:
+                                                urls_para_manter.append(url_img)
+
                                 e_files = st.file_uploader(f"Adicionar novas fotos/arquivos ao Passo {p_num}:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_num}")
                                 
-                                if e_txt.strip():
-                                    url_final_passo = p_obj.get("anexo")
+                                if e_txt.strip() or urls_para_manter or e_files:
                                     novas_urls = upload_multiplos_arquivos(e_files) if e_files else None
+                                    
+                                    lista_final_urls = list(urls_para_manter)
                                     if novas_urls:
-                                        if url_final_passo and pd.notna(url_final_passo) and str(url_final_passo).strip() != "":
-                                            url_final_passo = f"{url_final_passo},{novas_urls}"
-                                        else:
-                                            url_final_passo = novas_urls
+                                        lista_final_urls.extend([u.strip() for u in novas_urls.split(",") if u.strip()])
+                                        
+                                    url_final_passo = ",".join(lista_final_urls) if lista_final_urls else None
                                             
                                     edit_passos_dados.append({
                                         "passo": p_num,
