@@ -155,17 +155,6 @@ def registrar_log(usuario_email, acao, detalhes):
 def limpar_dados_para_json(dados):
     return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
 
-def salvar_ocorrencia_db(dados, usuario_email):
-    try:
-        dados.pop("origem", None)
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro detalhado do Supabase ao salvar: {e}")
-        return False
-
 def processar_importacao_txt(file_bytes, usuario_email):
     try:
         try:
@@ -334,7 +323,6 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
     }).execute()
 
 def upload_arquivo_unico(file):
-    """Realiza o upload de um arquivo ou foto para o Supabase Storage e retorna a URL pública."""
     if not file:
         return None
     try:
@@ -362,7 +350,6 @@ def upload_arquivo_unico(file):
         return None
 
 def upload_multiplos_arquivos(files):
-    """Realiza o upload de múltiplos arquivos/fotos e retorna uma string separada por vírgula sem duplicatas."""
     if not files:
         return None
     urls = []
@@ -370,7 +357,6 @@ def upload_multiplos_arquivos(files):
         u = upload_arquivo_unico(f)
         if u:
             urls.append(u)
-    # Remove duplicatas preservando a ordem
     urls = list(dict.fromkeys(urls))
     return ",".join(urls) if urls else None
 
@@ -517,7 +503,31 @@ if st.session_state.user_role == "Admin":
 tabs = st.tabs(abas_navegacao)
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    """Renderiza os passos ordenados, suportando múltiplos arquivos/fotos sem duplicatas."""
+    """Renderiza os anexos do problema e em seguida os passos ordenados da solução."""
+    # Renderiza primeiro os arquivos anexados no Problema (anexo_url)
+    if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
+        st.markdown("📎 **Evidências do Problema (Sintoma):**")
+        urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
+        urls_problema = list(dict.fromkeys(urls_problema))
+        
+        for idx_prob, url_file in enumerate(urls_problema):
+            nome_arquivo = url_file.split("/")[-1].split("?")[0]
+            if "_" in nome_arquivo:
+                partes_nome = nome_arquivo.split("_", 2)
+                nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+            else:
+                nome_exibicao = nome_arquivo
+                
+            extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+            if url_file.lower().endswith(extensoes_imagem):
+                try:
+                    st.image(url_file, width=450, caption=f"Imagem do Problema {idx_prob + 1}: {nome_exibicao}")
+                except Exception:
+                    st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+            else:
+                st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+        st.markdown("---")
+
     passos = []
     try:
         if solucao_data and str(solucao_data).strip().startswith("["):
@@ -536,7 +546,6 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             
             if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
                 urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
-                # Deduplica URLs para evitar repetições na tela
                 urls_passo = list(dict.fromkeys(urls_passo))
                 
                 for idx_f, url_file in enumerate(urls_passo):
@@ -558,28 +567,6 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             st.markdown("")
     else:
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
-        if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
-            st.markdown("---")
-            st.markdown("📎 **Evidências e Arquivos Anexados:**")
-            urls_anexos = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
-            urls_anexos = list(dict.fromkeys(urls_anexos))
-            
-            for idx_file, url_file in enumerate(urls_anexos):
-                nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                if "_" in nome_arquivo:
-                    partes_nome = nome_arquivo.split("_", 2)
-                    nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-                else:
-                    nome_exibicao = nome_arquivo
-                
-                extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                if url_file.lower().endswith(extensoes_imagem):
-                    try:
-                        st.image(url_file, width=500, caption=f"Foto {idx_file + 1}: {nome_exibicao}")
-                    except Exception:
-                        st.markdown(f"📥 Baixar Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
-                else:
-                    st.markdown(f"📄 Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
 
 # ==========================================
 # ABA 1: CONSULTA + EDIÇÃO + FAVORITO + AVALIAÇÃO + EXCLUSÃO
@@ -728,9 +715,34 @@ with tabs[0]:
                                 edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
 
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
+                            
+                            # Gerenciamento dos arquivos do Problema no modo edição
+                            st.markdown("📎 **Editar / Adicionar Arquivos do Problema (Sintoma):**")
+                            urls_prob_existentes = [u.strip() for u in str(anexo).split(",") if u.strip()] if anexo and pd.notna(anexo) else []
+                            urls_prob_existentes = list(dict.fromkeys(urls_prob_existentes))
+                            
+                            urls_prob_para_manter = []
+                            if urls_prob_existentes:
+                                for idx_pi, url_pi in enumerate(urls_prob_existentes):
+                                    nome_arq_pi = url_pi.split("/")[-1].split("?")[0]
+                                    cp1, cp2 = st.columns([3, 1])
+                                    with cp1:
+                                        if url_pi.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                                            try:
+                                                st.image(url_pi, width=150)
+                                            except Exception:
+                                                st.markdown(f"📄 {nome_arq_pi}")
+                                        else:
+                                            st.markdown(f"📄 {nome_arq_pi}")
+                                    with cp2:
+                                        if st.checkbox("Manter", value=True, key=f"manter_prob_{ocor_id}_{idx_pi}"):
+                                            urls_prob_para_manter.append(url_pi)
+
+                            edit_files_prob = st.file_uploader("Adicionar novos arquivos ao Problema:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_prob_files_{ocor_id}")
+                            
                             edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
                             
-                            st.markdown("### 🛠️ Editar Passos, Excluir Imagens e Adicionar Novas")
+                            st.markdown("### 🛠️ Editar Passos da Solução")
                             
                             passos_atuais = []
                             try:
@@ -740,7 +752,7 @@ with tabs[0]:
                                 pass
                             
                             if not passos_atuais:
-                                passos_atuais = [{"passo": 1, "texto": str(solucao_val), "anexo": anexo}]
+                                passos_atuais = [{"passo": 1, "texto": str(solucao_val), "anexo": None}]
 
                             edit_passos_dados = []
                             for p_num in range(1, 4):
@@ -748,14 +760,13 @@ with tabs[0]:
                                 st.markdown(f"**Passo {p_num}**")
                                 e_txt = st.text_area(f"Texto do Passo {p_num}:", value=p_obj.get("texto", ""), key=f"edit_p_txt_{ocor_id}_{p_num}")
                                 
-                                # Gerenciamento individual de imagens existentes (Permite excluir desmarcando)
                                 anexo_atual_passo = p_obj.get("anexo")
                                 urls_existentes = [u.strip() for u in str(anexo_atual_passo).split(",") if u.strip()] if anexo_atual_passo and pd.notna(anexo_atual_passo) else []
-                                urls_existentes = list(dict.fromkeys(urls_existentes)) # Remove duplicatas visuais
+                                urls_existentes = list(dict.fromkeys(urls_existentes))
                                 
                                 urls_para_manter = []
                                 if urls_existentes:
-                                    st.markdown("📷 *Imagens atuais (desmarque para excluir individualmente):*")
+                                    st.markdown("📷 *Imagens atuais (desmarque para excluir):*")
                                     for idx_img, url_img in enumerate(urls_existentes):
                                         nome_arq = url_img.split("/")[-1].split("?")[0]
                                         col_prev, col_chk = st.columns([3, 1])
@@ -768,20 +779,16 @@ with tabs[0]:
                                             else:
                                                 st.markdown(f"📄 {nome_arq}")
                                         with col_chk:
-                                            manter_img = st.checkbox("Manter", value=True, key=f"manter_{ocor_id}_{p_num}_{idx_img}")
-                                            if manter_img:
+                                            if st.checkbox("Manter", value=True, key=f"manter_{ocor_id}_{p_num}_{idx_img}"):
                                                 urls_para_manter.append(url_img)
 
-                                e_files = st.file_uploader(f"Adicionar novas fotos/arquivos ao Passo {p_num}:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_num}")
+                                e_files = st.file_uploader(f"Adicionar novas fotos ao Passo {p_num}:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_num}")
                                 
                                 if e_txt.strip() or urls_para_manter or e_files:
                                     novas_urls = upload_multiplos_arquivos(e_files) if e_files else None
-                                    
                                     lista_final_urls = list(urls_para_manter)
                                     if novas_urls:
                                         lista_final_urls.extend([u.strip() for u in novas_urls.split(",") if u.strip()])
-                                        
-                                    # Deduplica lista final antes de salvar
                                     lista_final_urls = list(dict.fromkeys(lista_final_urls))
                                     url_final_passo = ",".join(lista_final_urls) if lista_final_urls else None
                                             
@@ -794,6 +801,14 @@ with tabs[0]:
                             if st.form_submit_button("💾 Salvar Alterações"):
                                 json_solucao_final = json.dumps(edit_passos_dados) if edit_passos_dados else ""
                                 
+                                # Processa anexos do problema final
+                                novas_urls_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else None
+                                lista_final_prob = list(urls_prob_para_manter)
+                                if novas_urls_prob:
+                                    lista_final_prob.extend([u.strip() for u in novas_urls_prob.split(",") if u.strip()])
+                                lista_final_prob = list(dict.fromkeys(lista_final_prob))
+                                anexo_url_final = ",".join(lista_final_prob) if lista_final_prob else None
+                                
                                 dados_novos = {
                                     "sistema": edit_sist,
                                     "equipamento": edit_hw,
@@ -803,7 +818,7 @@ with tabs[0]:
                                     "status": edit_status,
                                     "nivel": edit_nivel,
                                     "tempo_estimado": edit_tempo,
-                                    "anexo_url": None
+                                    "anexo_url": anexo_url_final
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
@@ -858,7 +873,7 @@ with tabs[1]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 3: CADASTRO COM MÚLTIPLOS ANEXOS POR PASSO
+# ABA 3: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -874,11 +889,13 @@ with tabs[indice_cad]:
             in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
 
         in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
+        in_files_prob = st.file_uploader("📎 Imagens ou Arquivos do Problema (Sintoma):", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key="cad_prob_files")
+        
         in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
         
         st.markdown("---")
-        st.markdown("### 🛠️ Passos da Solução (Múltiplos Arquivos/Fotos por Etapa)")
-        st.caption("Adicione quantas fotos ou arquivos precisar em cada passo.")
+        st.markdown("### 🛠️ Passos da Solução")
+        st.caption("Adicione os procedimentos necessários para resolver o problema.")
         
         passos_novos_lista = []
         for p_idx in range(1, 4):
@@ -887,7 +904,7 @@ with tabs[indice_cad]:
             with col_p_txt:
                 txt_p = st.text_area(f"Descrição do Passo {p_idx}:", placeholder=f"Ex: {p_idx}° Faça tal procedimento...", key=f"cad_p_txt_{p_idx}")
             with col_p_file:
-                files_p = st.file_uploader(f"Anexos/Fotos Passo {p_idx}", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
+                files_p = st.file_uploader(f"Anexos Passo {p_idx}", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
             
             if txt_p.strip():
                 url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
@@ -900,6 +917,7 @@ with tabs[indice_cad]:
         if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
             if in_prob and in_motivo and passos_novos_lista:
                 json_solucao = json.dumps(passos_novos_lista)
+                url_anexo_prob = upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
                 autor_reg = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
                 
                 dados = {
@@ -911,7 +929,7 @@ with tabs[indice_cad]:
                     "status": in_status,
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
-                    "anexo_url": None
+                    "anexo_url": url_anexo_prob
                 }
                 if salvar_ocorrencia_db(dados, autor_reg):
                     st.toast("Tratativa salva com sucesso!", icon="🎉")
