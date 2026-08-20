@@ -362,7 +362,7 @@ def upload_arquivo_unico(file):
         return None
 
 def upload_multiplos_arquivos(files):
-    """Realiza o upload de múltiplos arquivos/fotos e retorna uma string separada por vírgula."""
+    """Realiza o upload de múltiplos arquivos/fotos e retorna uma string separada por vírgula sem duplicatas."""
     if not files:
         return None
     urls = []
@@ -370,6 +370,8 @@ def upload_multiplos_arquivos(files):
         u = upload_arquivo_unico(f)
         if u:
             urls.append(u)
+    # Remove duplicatas preservando a ordem
+    urls = list(dict.fromkeys(urls))
     return ",".join(urls) if urls else None
 
 EMAILS_GESTORES = ["watson@actuar.group"]
@@ -515,7 +517,7 @@ if st.session_state.user_role == "Admin":
 tabs = st.tabs(abas_navegacao)
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    """Renderiza os passos ordenados, suportando múltiplos arquivos/fotos por passo."""
+    """Renderiza os passos ordenados, suportando múltiplos arquivos/fotos sem duplicatas."""
     passos = []
     try:
         if solucao_data and str(solucao_data).strip().startswith("["):
@@ -534,6 +536,9 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             
             if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
                 urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
+                # Deduplica URLs para evitar repetições na tela
+                urls_passo = list(dict.fromkeys(urls_passo))
+                
                 for idx_f, url_file in enumerate(urls_passo):
                     nome_arquivo = url_file.split("/")[-1].split("?")[0]
                     if "_" in nome_arquivo:
@@ -557,6 +562,8 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             st.markdown("---")
             st.markdown("📎 **Evidências e Arquivos Anexados:**")
             urls_anexos = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
+            urls_anexos = list(dict.fromkeys(urls_anexos))
+            
             for idx_file, url_file in enumerate(urls_anexos):
                 nome_arquivo = url_file.split("/")[-1].split("?")[0]
                 if "_" in nome_arquivo:
@@ -744,6 +751,7 @@ with tabs[0]:
                                 # Gerenciamento individual de imagens existentes (Permite excluir desmarcando)
                                 anexo_atual_passo = p_obj.get("anexo")
                                 urls_existentes = [u.strip() for u in str(anexo_atual_passo).split(",") if u.strip()] if anexo_atual_passo and pd.notna(anexo_atual_passo) else []
+                                urls_existentes = list(dict.fromkeys(urls_existentes)) # Remove duplicatas visuais
                                 
                                 urls_para_manter = []
                                 if urls_existentes:
@@ -773,6 +781,8 @@ with tabs[0]:
                                     if novas_urls:
                                         lista_final_urls.extend([u.strip() for u in novas_urls.split(",") if u.strip()])
                                         
+                                    # Deduplica lista final antes de salvar
+                                    lista_final_urls = list(dict.fromkeys(lista_final_urls))
                                     url_final_passo = ",".join(lista_final_urls) if lista_final_urls else None
                                             
                                     edit_passos_dados.append({
