@@ -178,7 +178,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
         blocos = texto.split("Erro:")
         importadas = 0
         
-        for bloco in blocs := blocos:
+        for bloco in blocos := blocos:
             if not bloco.strip():
                 continue
             
