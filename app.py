@@ -1025,7 +1025,7 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
 # ==========================================
 # ABA 5: AUDIT LOG
 # ==========================================
-if st.session_state.user_role == "Admin" && "📜 Audit Log (Gestão)" in abas_navegacao: # Corrigido operador logico caso necessário (usando and)
+if st.session_state.user_role == "Admin" and "📜 Audit Log (Gestão)" in abas_navegacao:
     indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
     with tabs[indice_audit]:
         st.subheader("📜 Histórico de Auditoria (Audit Log)")
