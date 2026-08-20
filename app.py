@@ -153,13 +153,11 @@ def registrar_log(usuario_email, acao, detalhes):
         print(f"Erro ao registrar log: {e}")
 
 def limpar_dados_para_json(dados):
-    """Converte valores NaN do pandas para None e garante tipos nativos para o JSON."""
     return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
 
 def salvar_ocorrencia_db(dados, usuario_email):
     try:
         dados.pop("origem", None)
-            
         dados_limpos = limpar_dados_para_json(dados)
         supabase.table("ocorrencias").insert(dados_limpos).execute()
         registrar_log(usuario_email, "CRIOU", f"Criou a ocorrência: {dados.get('problema')}")
@@ -186,7 +184,6 @@ def processar_importacao_txt(file_bytes, usuario_email):
             problema = linhas[0].strip()
             
             sistema = "Não se aplica / Geral"
-            equipamento = "Outro Hardware"
             motivo_partes = []
             solucao_texto = ""
             
@@ -215,8 +212,6 @@ def processar_importacao_txt(file_bytes, usuario_email):
                     
             if problema:
                 motivo_final = " | ".join(motivo_partes) if motivo_partes else "Não informado"
-                
-                # Converte solução texto simples em formato estruturado de 1 passo
                 passos_padrao = [{"passo": 1, "texto": solucao_texto if solucao_texto else "Não informada", "anexo": None}]
                 
                 dados = {
@@ -245,7 +240,6 @@ def processar_importacao_txt(file_bytes, usuario_email):
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
     try:
         dados_atualizados.pop("origem", None)
-            
         dados_limpos = limpar_dados_para_json(dados_atualizados)
         supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
         registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
@@ -265,7 +259,6 @@ def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
         else:
             st.error("O banco bloqueou a exclusão. Verifique se o RLS está liberado no Supabase.")
             return False
-            
     except Exception as e:
         st.error(f"Erro ao excluir no Supabase: {e}")
         return False
@@ -368,6 +361,17 @@ def upload_arquivo_unico(file):
         st.error(f"Erro no upload do arquivo {file.name}: {e}")
         return None
 
+def upload_multiplos_arquivos(files):
+    """Realiza o upload de múltiplos arquivos/fotos e retorna uma string separada por vírgula."""
+    if not files:
+        return None
+    urls = []
+    for f in files:
+        u = upload_arquivo_unico(f)
+        if u:
+            urls.append(u)
+    return ",".join(urls) if urls else None
+
 EMAILS_GESTORES = ["watson@actuar.group"]
 
 def obter_perfil_usuario(user_id, email):
@@ -403,7 +407,7 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN OPCIONAL
+# 3. CONTROLE DE SESSÃO E LOGIN
 # ==========================================
 if "user" not in st.session_state:
     session = supabase.auth.get_session()
@@ -438,7 +442,6 @@ def fazer_logout():
     st.session_state.favoritos = []
     st.rerun()
 
-# --- BARRA LATERAL (PAINEL DE LOGIN OPCIONAL / ADMIN) ---
 with st.sidebar:
     if os.path.exists("logo_dark.png"):
         st.image("logo_dark.png", width=70)
@@ -504,7 +507,6 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Abas de navegação
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Importar & Exportar (TXT)")
@@ -513,7 +515,7 @@ if st.session_state.user_role == "Admin":
 tabs = st.tabs(abas_navegacao)
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    """Renderiza os passos da solução ordenados, com seus respectivos arquivos/fotos."""
+    """Renderiza os passos ordenados, suportando múltiplos arquivos/fotos por passo."""
     passos = []
     try:
         if solucao_data and str(solucao_data).strip().startswith("["):
@@ -531,24 +533,25 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             st.markdown(f"**{num_passo}º** {texto_passo}")
             
             if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
-                nome_arquivo = str(url_passo).split("/")[-1].split("?")[0]
-                if "_" in nome_arquivo:
-                    partes_nome = nome_arquivo.split("_", 2)
-                    nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-                else:
-                    nome_exibicao = nome_arquivo
-                    
-                extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                if url_passo.lower().endswith(extensoes_imagem):
-                    try:
-                        st.image(url_passo, width=450, caption=f"Evidência do Passo {num_passo}: {nome_exibicao}")
-                    except Exception:
-                        st.markdown(f"📥 Baixar Arquivo do Passo {num_passo}: [**{nome_exibicao}**]({url_passo})")
-                else:
-                    st.markdown(f"📄 Arquivo do Passo {num_passo}: [**{nome_exibicao}**]({url_passo})")
+                urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
+                for idx_f, url_file in enumerate(urls_passo):
+                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                    if "_" in nome_arquivo:
+                        partes_nome = nome_arquivo.split("_", 2)
+                        nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                    else:
+                        nome_exibicao = nome_arquivo
+                        
+                    extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                    if url_file.lower().endswith(extensoes_imagem):
+                        try:
+                            st.image(url_file, width=450, caption=f"Evidência {idx_f + 1} do Passo {num_passo}: {nome_exibicao}")
+                        except Exception:
+                            st.markdown(f"📥 Baixar Arquivo {idx_f + 1} do Passo {num_passo}: [**{nome_exibicao}**]({url_file})")
+                    else:
+                        st.markdown(f"📄 Arquivo {idx_f + 1} do Passo {num_passo}: [**{nome_exibicao}**]({url_file})")
             st.markdown("")
     else:
-        # Fallback para formato antigo em texto simples
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
         if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
             st.markdown("---")
@@ -645,7 +648,6 @@ with tabs[0]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
                 
-                # Renderiza solução estruturada por passos com anexos individuais
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
                 st.markdown("---")
@@ -691,10 +693,8 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # BLOCO EXCLUSIVO DE ADMIN (EXCLUSÃO E EDIÇÃO)
                 if st.session_state.user_role == "Admin":
                     st.markdown("---")
-                    
                     with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
                         with st.form(key=f"form_edit_{ocor_id}"):
                             edit_col1, edit_col2 = st.columns(2)
@@ -723,9 +723,8 @@ with tabs[0]:
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
                             edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
                             
-                            st.markdown("### 🛠️ Editar Passos e Anexos da Solução")
+                            st.markdown("### 🛠️ Editar Passos e Anexos (Múltiplos por Passo)")
                             
-                            # Tenta carregar passos existentes para edição
                             passos_atuais = []
                             try:
                                 if solucao_val and str(solucao_val).strip().startswith("["):
@@ -741,14 +740,16 @@ with tabs[0]:
                                 p_obj = next((x for x in passos_atuais if x.get("passo") == p_num), {"texto": "", "anexo": None})
                                 st.markdown(f"**Passo {p_num}**")
                                 e_txt = st.text_area(f"Texto do Passo {p_num}:", value=p_obj.get("texto", ""), key=f"edit_p_txt_{ocor_id}_{p_num}")
-                                e_file = st.file_uploader(f"Novo Anexo/Foto Passo {p_num} (Opcional):", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], key=f"edit_p_file_{ocor_id}_{p_num}")
+                                e_files = st.file_uploader(f"Adicionar novas fotos/arquivos ao Passo {p_num}:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_num}")
                                 
                                 if e_txt.strip():
                                     url_final_passo = p_obj.get("anexo")
-                                    if e_file:
-                                        novo_up = upload_arquivo_unico(e_file)
-                                        if novo_up:
-                                            url_final_passo = novo_up
+                                    novas_urls = upload_multiplos_arquivos(e_files) if e_files else None
+                                    if novas_urls:
+                                        if url_final_passo and pd.notna(url_final_passo) and str(url_final_passo).strip() != "":
+                                            url_final_passo = f"{url_final_passo},{novas_urls}"
+                                        else:
+                                            url_final_passo = novas_urls
                                             
                                     edit_passos_dados.append({
                                         "passo": p_num,
@@ -782,14 +783,14 @@ with tabs[0]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: MEUS FAVORITOS (ATALHOS PESSOAIS)
+# ABA 2: MEUS FAVORITOS
 # ==========================================
 with tabs[1]:
     st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
-    st.caption("Acesse rapidamente os problemas que você mais resolve, salvos em seus atalhos.")
+    st.caption("Acesse rapidamente os problemas que você mais resolve.")
     
     if not st.session_state.favoritos or df_ocorrencias.empty:
-        st.info("Você ainda não favoritou nenhuma ocorrência. Clique no botão '☆ Favoritar Chamado' dentro de qualquer card na aba de Diagnósticos para fixá-lo aqui.")
+        st.info("Você ainda não favoritou nenhuma ocorrência.")
     else:
         df_fav = df_ocorrencias[df_ocorrencias["id"].isin(st.session_state.favoritos)]
         
@@ -823,7 +824,7 @@ with tabs[1]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 3: CADASTRO COM PASSOS E ANEXOS INDIVIDUAIS
+# ABA 3: CADASTRO COM MÚLTIPLOS ANEXOS POR PASSO
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -842,8 +843,8 @@ with tabs[indice_cad]:
         in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
         
         st.markdown("---")
-        st.markdown("### 🛠️ Passos da Solução (Com Anexo/Foto por Etapa)")
-        st.caption("Adicione os passos em ordem. Cada passo pode ter sua própria foto ou arquivo explicativo.")
+        st.markdown("### 🛠️ Passos da Solução (Múltiplos Arquivos/Fotos por Etapa)")
+        st.caption("Adicione quantas fotos ou arquivos precisar em cada passo.")
         
         passos_novos_lista = []
         for p_idx in range(1, 4):
@@ -852,10 +853,10 @@ with tabs[indice_cad]:
             with col_p_txt:
                 txt_p = st.text_area(f"Descrição do Passo {p_idx}:", placeholder=f"Ex: {p_idx}° Faça tal procedimento...", key=f"cad_p_txt_{p_idx}")
             with col_p_file:
-                file_p = st.file_uploader(f"Anexo/Foto Passo {p_idx}", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], key=f"cad_p_file_{p_idx}")
+                files_p = st.file_uploader(f"Anexos/Fotos Passo {p_idx}", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
             
             if txt_p.strip():
-                url_anexo_p = upload_arquivo_unico(file_p) if file_p else None
+                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
                 passos_novos_lista.append({
                     "passo": p_idx,
                     "texto": txt_p.strip(),
@@ -885,13 +886,13 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
 
 # ==========================================
-# ABA 4: IMPORTAR & EXPORTAR BANCO EM TXT (EXCLUSIVO ADMIN)
+# ABA 4: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in abas_navegacao:
     indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
     with tabs[indice_export]:
         st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico do banco de dados.")
+        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico.")
         
         st.markdown("### 📤 Importar Ocorrências em Lote")
         with st.form("form_import_txt"):
@@ -901,18 +902,18 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
                 if arquivo_txt is not None:
                     qtd = processar_importacao_txt(arquivo_txt.getvalue(), st.session_state.user.email)
                     if qtd > 0:
-                        st.success(f"{qtd} ocorrências foram importadas e cadastradas com sucesso!")
+                        st.success(f"{qtd} ocorrências foram importadas com sucesso!")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.warning("Nenhuma ocorrência válida foi encontrada no arquivo.")
+                        st.warning("Nenhuma ocorrência válida encontrada.")
                 else:
-                    st.warning("Por favor, envie um arquivo .TXT válido.")
+                    st.warning("Envie um arquivo .TXT válido.")
         
         st.markdown("---")
         st.markdown("### 📥 Exportar Base Completa")
         if df_ocorrencias.empty:
-            st.info("O banco de dados de ocorrências está vazio.")
+            st.info("O banco de dados está vazio.")
         else:
             conteudo_txt = ""
             for _, row in df_ocorrencias.iterrows():
@@ -930,13 +931,13 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
             )
 
 # ==========================================
-# ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
+# ABA 5: AUDIT LOG
 # ==========================================
 if st.session_state.user_role == "Admin" and "📜 Audit Log (Gestão)" in abas_navegacao:
     indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
     with tabs[indice_audit]:
         st.subheader("📜 Histórico de Auditoria (Audit Log)")
-        st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
+        st.caption("Acompanhe todas as interações e alterações realizadas.")
         
         try:
             res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
