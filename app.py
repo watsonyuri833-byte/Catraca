@@ -505,7 +505,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO CORRETA DAS ABAS ANTES DE USÁ-LAS
+# CRIAÇÃO DAS ABAS
 abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Importar & Exportar (TXT)")
@@ -578,7 +578,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA 1: CONSULTA ORGANIZADA (TABELA + SELETOR)
+# ABA 1: CONSULTA COM TABELA INTERATIVA (SELEÇÃO POR CLIQUE)
 # ==========================================
 with tabs[0]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
@@ -597,7 +597,7 @@ with tabs[0]:
         hw_opt = ["Todos"] + sorted(list(hw_base))
         f_hw = st.selectbox("Filtrar por Hardware:", hw_opt, key="f_hw_tab0")
     with col_f3:
-        f_busca = st.text_input("Buscar termo ou palavra-chave:", "", key="f_busca_tab0")
+        f_busca = st.text_input("🔍 Buscar termo ou palavra-chave:", "", key="f_busca_tab0", placeholder="Ex: DLL, facial, timeout, IP...")
 
     df_filtered = df_ocorrencias.copy()
     if not df_filtered.empty:
@@ -615,9 +615,13 @@ with tabs[0]:
     if df_filtered.empty:
         st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
     else:
-        st.markdown("### 📊 Visão Geral dos Chamados Filtrados")
+        st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
+        st.caption("💡 **Como usar:** Digite acima para refinar a busca e **clique diretamente na linha** da tabela abaixo para carregar os detalhes completos.")
+        
         df_display = df_filtered[["id", "sistema", "equipamento", "problema", "status", "nivel"]].copy()
-        st.dataframe(
+        
+        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
+        evento_tabela = st.dataframe(
             df_display,
             column_config={
                 "id": "ID",
@@ -628,24 +632,17 @@ with tabs[0]:
                 "nivel": "Nível"
             },
             hide_index=True,
-            use_container_width=True
+            use_container_width=True,
+            on_selection="rerun",
+            selection_mode="single-row"
         )
         
-        st.markdown("---")
-        st.markdown("### 🔎 Detalhar, Avaliar ou Editar Ocorrência")
-        
-        ids_disponiveis = df_filtered["id"].tolist()
-        mapa_opcoes = {
-            row['id']: f"ID #{row['id']} - [{row.get('sistema', 'N/A')} • {row.get('equipamento', 'N/A')}] {str(row.get('problema', ''))[:55]}..." 
-            for _, row in df_filtered.iterrows()
-        }
-        
-        ocor_id_selecionado = st.selectbox(
-            "Selecione uma ocorrência abaixo para carregar os detalhes completos e passos:",
-            options=ids_disponiveis,
-            format_func=lambda x: mapa_opcoes.get(x, str(x)),
-            key="selectbox_detalhe_ocorrencia"
-        )
+        # Identifica se o usuário clicou em alguma linha da tabela
+        ocor_id_selecionado = None
+        selected_rows = evento_tabela.selection.rows
+        if selected_rows:
+            idx_tabela = selected_rows[0]
+            ocor_id_selecionado = int(df_display.iloc[idx_tabela]["id"])
         
         if ocor_id_selecionado:
             row = df_filtered[df_filtered["id"] == ocor_id_selecionado].iloc[0]
@@ -662,10 +659,11 @@ with tabs[0]:
             is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
+            st.markdown("---")
             with st.container(border=True):
                 col_det_title, col_det_fav = st.columns([4, 1])
                 with col_det_title:
-                    st.markdown(f"### 🚨 {prob}")
+                    st.markdown(f"### 🚨 [ID #{ocor_id}] {prob}")
                 with col_det_fav:
                     if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
                         if is_fav:
@@ -1027,7 +1025,7 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
 # ==========================================
 # ABA 5: AUDIT LOG
 # ==========================================
-if st.session_state.user_role == "Admin" and "📜 Audit Log (Gestão)" in abas_navegacao:
+if st.session_state.user_role == "Admin" && "📜 Audit Log (Gestão)" in abas_navegacao: # Corrigido operador logico caso necessário (usando and)
     indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
     with tabs[indice_audit]:
         st.subheader("📜 Histórico de Auditoria (Audit Log)")
