@@ -557,7 +557,7 @@ with tabs[0]:
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
             # 💡 DESTAQUE INTELIGENTE DO PROBLEMA NO INÍCIO DO TÍTULO DO EXPANDER
-            titulo_card = f"📌 {prob}  |  {sist} + {hw}  [{status}]"
+            titulo_card = f"🚨 {prob}  |  📂 [{sist} • {hw}]  —  {status}"
             
             with st.expander(titulo_card):
                 if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
@@ -711,7 +711,7 @@ with tabs[1]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            titulo_card_fav = f"⭐ {prob}  |  {sist} + {hw}  [{status}]"
+            titulo_card_fav = f"⭐ [FAVORITO] {prob}  |  📂 [{sist} • {hw}]  —  {status}"
             
             with st.expander(titulo_card_fav):
                 if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
