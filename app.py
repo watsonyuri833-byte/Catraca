@@ -620,7 +620,7 @@ with tabs[0]:
         
         df_display = df_filtered[["id", "sistema", "equipamento", "problema", "status", "nivel"]].copy()
         
-        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
+        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA (CORRIGIDO PARA on_select)
         evento_tabela = st.dataframe(
             df_display,
             column_config={
@@ -633,13 +633,18 @@ with tabs[0]:
             },
             hide_index=True,
             use_container_width=True,
-            on_selection="rerun",
+            on_select="rerun",
             selection_mode="single-row"
         )
         
-        # Identifica se o usuário clicou em alguma linha da tabela
+        # Identifica se o usuário clicou em alguma linha da tabela de forma segura
         ocor_id_selecionado = None
-        selected_rows = evento_tabela.selection.rows
+        selected_rows = []
+        if isinstance(evento_tabela, dict) and "selection" in evento_tabela:
+            selected_rows = evento_tabela["selection"].get("rows", [])
+        elif hasattr(evento_tabela, "selection") and hasattr(evento_tabela.selection, "rows"):
+            selected_rows = evento_tabela.selection.rows
+            
         if selected_rows:
             idx_tabela = selected_rows[0]
             ocor_id_selecionado = int(df_display.iloc[idx_tabela]["id"])
