@@ -337,29 +337,37 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
         "comentario": texto
     }).execute()
 
-def upload_anexo(file):
-    try:
-        ext = file.name.split('.')[-1]
-        file_name = f"evidencia_{int(time.time())}.{ext}"
-        file_bytes = file.getvalue()
-        
-        try:
-            supabase.storage.from_("anexos_evidencias").upload(
-                path=file_name,
-                file=file_bytes,
-                file_options={"content-type": file.type}
-            )
-        except Exception:
-            pass
-            
-        url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
-        
-        if isinstance(url_res, dict):
-            return url_res.get("publicUrl") or url_res.get("public_url") or str(url_res)
-        return str(url_res) if url_res else None
-    except Exception as e:
-        st.error(f"Erro no upload da imagem: {e}")
+def upload_multiplos_anexos(files):
+    """Realiza o upload de múltiplos arquivos/fotos para o Supabase Storage e retorna as URLs separadas por vírgula."""
+    if not files:
         return None
+    urls = []
+    for file in files:
+        try:
+            ext = file.name.split('.')[-1]
+            file_name = f"evidencia_{int(time.time())}_{file.name}"
+            file_bytes = file.getvalue()
+            
+            try:
+                supabase.storage.from_("anexos_evidencias").upload(
+                    path=file_name,
+                    file=file_bytes,
+                    file_options={"content-type": file.type}
+                )
+            except Exception:
+                pass
+                
+            url_res = supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
+            
+            if isinstance(url_res, dict):
+                u = url_res.get("publicUrl") or url_res.get("public_url") or str(url_res)
+            else:
+                u = str(url_res) if url_res else None
+            if u:
+                urls.append(u)
+        except Exception as e:
+            st.error(f"Erro no upload do arquivo {file.name}: {e}")
+    return ",".join(urls) if urls else None
 
 EMAILS_GESTORES = ["watson@actuar.group"]
 
@@ -458,12 +466,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só catraca"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só sistema"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
@@ -579,13 +587,16 @@ with tabs[0]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
+                # Exibição de múltiplas fotos/anexos se houver
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("📷 **Evidência Anexada:**")
-                    try:
-                        st.image(str(anexo), width=500)
-                    except Exception:
-                        st.warning("Não foi possível carregar a imagem armazenada.")
+                    st.markdown("📷 **Evidências Anexadas:**")
+                    urls_anexos = [u.strip() for u in str(anexo).split(",") if u.strip()]
+                    for idx_img, url_img in enumerate(urls_anexos):
+                        try:
+                            st.image(url_img, width=500, caption=f"Evidência {idx_img + 1}")
+                        except Exception:
+                            st.warning(f"Não foi possível carregar a imagem {idx_img + 1}.")
 
                 st.markdown("---")
                 v_pos = row.get('votos_pos', 0) or 0
@@ -658,14 +669,21 @@ with tabs[0]:
                             with edit_col2:
                                 edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
                                 edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
-                                edit_anexo = st.file_uploader("📷 Substituir Foto/Anexo (Opcional):", type=["png", "jpg", "jpeg"], key=f"ea_{ocor_id}")
+                                edit_anexo = st.file_uploader("📷 Adicionar Mais Fotos/Anexos (Opcional):", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key=f"ea_{ocor_id}")
 
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
                             edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
                             edit_solucao = st.text_area("Solução Passo a Passo:", value=row.get('solucao', ''), key=f"eso_{ocor_id}")
 
                             if st.form_submit_button("💾 Salvar Alterações"):
-                                nova_url_anexo = upload_anexo(edit_anexo) if edit_anexo else anexo
+                                novas_urls_str = upload_multiplos_anexos(edit_anexo) if edit_anexo else None
+                                
+                                if novas_urls_str:
+                                    urls_existentes = [u.strip() for u in str(anexo).split(",") if u.strip()] if anexo and pd.notna(anexo) else []
+                                    urls_novas = [u.strip() for u in novas_urls_str.split(",") if u.strip()]
+                                    final_anexo_url = ",".join(urls_existentes + urls_novas)
+                                else:
+                                    final_anexo_url = anexo
                                 
                                 dados_novos = {
                                     "sistema": edit_sist,
@@ -676,7 +694,7 @@ with tabs[0]:
                                     "status": edit_status,
                                     "nivel": edit_nivel,
                                     "tempo_estimado": edit_tempo,
-                                    "anexo_url": nova_url_anexo
+                                    "anexo_url": final_anexo_url
                                 }
                                 
                                 if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
@@ -730,14 +748,16 @@ with tabs[1]:
                 
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("📷 **Evidência Anexada:**")
-                    try:
-                        st.image(str(anexo), width=500)
-                    except Exception:
-                        pass
+                    st.markdown("📷 **Evidências Anexadas:**")
+                    urls_anexos = [u.strip() for u in str(anexo).split(",") if u.strip()]
+                    for idx_img, url_img in enumerate(urls_anexos):
+                        try:
+                            st.image(url_img, width=500, caption=f"Evidência {idx_img + 1}")
+                        except Exception:
+                            pass
 
 # ==========================================
-# ABA 3: CADASTRO COM ANEXO
+# ABA 3: CADASTRO COM MÚLTIPLOS ANEXOS
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -751,7 +771,8 @@ with tabs[indice_cad]:
         with col_c2:
             in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
             in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
-            in_anexo = st.file_uploader("📷 Anexar Foto do Erro / Screenshot (Opcional):", type=["png", "jpg", "jpeg"])
+            # Permitir múltiplos arquivos
+            in_anexo = st.file_uploader("📷 Anexar Fotos / Screenshots (Múltiplas permitidas):", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
         in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
         in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
@@ -759,7 +780,7 @@ with tabs[indice_cad]:
         
         if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
             if in_prob and in_motivo and in_solucao:
-                anexo_url = upload_anexo(in_anexo) if in_anexo else None
+                anexo_url = upload_multiplos_anexos(in_anexo) if in_anexo else None
                 autor_reg = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
                 dados = {
                     "sistema": in_sist,
