@@ -338,13 +338,12 @@ def salvar_comentario(ocorrencia_id, usuario, texto):
     }).execute()
 
 def upload_multiplos_anexos(files):
-    """Realiza o upload de múltiplos arquivos/fotos para o Supabase Storage e retorna as URLs separadas por vírgula."""
+    """Realiza o upload de múltiplos arquivos, fotos e documentos para o Supabase Storage e retorna as URLs separadas por vírgula."""
     if not files:
         return None
     urls = []
     for file in files:
         try:
-            ext = file.name.split('.')[-1]
             file_name = f"evidencia_{int(time.time())}_{file.name}"
             file_bytes = file.getvalue()
             
@@ -564,7 +563,6 @@ with tabs[0]:
             is_fav = ocor_id in st.session_state.favoritos
             texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
             
-            # 💡 DESTAQUE INTELIGENTE DO PROBLEMA NO INÍCIO DO TÍTULO DO EXPANDER
             titulo_card = f"🚨 {prob}  |  📂 [{sist} • {hw}]  —  {status}"
             
             with st.expander(titulo_card):
@@ -587,16 +585,28 @@ with tabs[0]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.success(f"**Solução Recomendada:**\n{row.get('solucao', '-')}")
                 
-                # Exibição de múltiplas fotos/anexos se houver
+                # Exibição inteligente de múltiplos anexos (Fotos e Arquivos)
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("📷 **Evidências Anexadas:**")
+                    st.markdown("📎 **Evidências e Arquivos Anexados:**")
                     urls_anexos = [u.strip() for u in str(anexo).split(",") if u.strip()]
-                    for idx_img, url_img in enumerate(urls_anexos):
-                        try:
-                            st.image(url_img, width=500, caption=f"Evidência {idx_img + 1}")
-                        except Exception:
-                            st.warning(f"Não foi possível carregar a imagem {idx_img + 1}.")
+                    
+                    for idx_file, url_file in enumerate(urls_anexos):
+                        nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                        if "_" in nome_arquivo:
+                            partes_nome = nome_arquivo.split("_", 2)
+                            nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                        else:
+                            nome_exibicao = nome_arquivo
+                            
+                        extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                        if url_file.lower().endswith(extensoes_imagem):
+                            try:
+                                st.image(url_file, width=500, caption=f"Foto {idx_file + 1}: {nome_exibicao}")
+                            except Exception:
+                                st.markdown(f"📥 Baixar Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
+                        else:
+                            st.markdown(f"📄 Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
 
                 st.markdown("---")
                 v_pos = row.get('votos_pos', 0) or 0
@@ -669,7 +679,13 @@ with tabs[0]:
                             with edit_col2:
                                 edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
                                 edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
-                                edit_anexo = st.file_uploader("📷 Adicionar Mais Fotos/Anexos (Opcional):", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key=f"ea_{ocor_id}")
+                                # Aceita múltiplos arquivos e documentos em geral
+                                edit_anexo = st.file_uploader(
+                                    "📎 Adicionar Mais Arquivos/Fotos (Opcional):", 
+                                    type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], 
+                                    accept_multiple_files=True, 
+                                    key=f"ea_{ocor_id}"
+                                )
 
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
                             edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
@@ -748,16 +764,27 @@ with tabs[1]:
                 
                 if anexo and pd.notna(anexo) and str(anexo).strip() != "":
                     st.markdown("---")
-                    st.markdown("📷 **Evidências Anexadas:**")
+                    st.markdown("📎 **Evidências e Arquivos Anexados:**")
                     urls_anexos = [u.strip() for u in str(anexo).split(",") if u.strip()]
-                    for idx_img, url_img in enumerate(urls_anexos):
-                        try:
-                            st.image(url_img, width=500, caption=f"Evidência {idx_img + 1}")
-                        except Exception:
-                            pass
+                    for idx_file, url_file in enumerate(urls_anexos):
+                        nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                        if "_" in nome_arquivo:
+                            partes_nome = nome_arquivo.split("_", 2)
+                            nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                        else:
+                            nome_exibicao = nome_arquivo
+                            
+                        extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                        if url_file.lower().endswith(extensoes_imagem):
+                            try:
+                                st.image(url_file, width=500, caption=f"Foto {idx_file + 1}: {nome_exibicao}")
+                            except Exception:
+                                st.markdown(f"📥 Baixar Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
+                        else:
+                            st.markdown(f"📄 Arquivo {idx_file + 1}: [**{nome_exibicao}**]({url_file})")
 
 # ==========================================
-# ABA 3: CADASTRO COM MÚLTIPLOS ANEXOS
+# ABA 3: CADASTRO COM MÚLTIPLOS ANEXOS (FOTOS E ARQUIVOS)
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -771,8 +798,13 @@ with tabs[indice_cad]:
         with col_c2:
             in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
             in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
-            # Permitir múltiplos arquivos
-            in_anexo = st.file_uploader("📷 Anexar Fotos / Screenshots (Múltiplas permitidas):", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+            
+            # Aceita múltiplos arquivos e documentos em geral
+            in_anexo = st.file_uploader(
+                "📎 Anexar Fotos, Documentos ou Arquivos (Múltiplos permitidos):", 
+                type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], 
+                accept_multiple_files=True
+            )
 
         in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
         in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
