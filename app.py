@@ -463,48 +463,6 @@ def upload_multiplos_arquivos(files):
   return ",".join(urls) if urls else None
 
 
-EMAILS_GESTORES = ["watson@actuar.group"]
-
-
-def obter_perfil_usuario(user_id, email):
-  if email.lower() in [e.lower() for e in EMAILS_GESTORES]:
-    role_atribuida = "Admin"
-  else:
-    role_atribuida = "Analista"
-
-  try:
-    res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
-    if res.data:
-      if (
-          res.data[0]["role"] != role_atribuida
-          and role_atribuida == "Admin"
-      ):
-        supabase.table("perfis").update({"role": "Admin"}).eq(
-            "user_id", user_id
-        ).execute()
-      return role_atribuida
-  except Exception:
-    pass
-
-  try:
-    supabase.table("perfis").insert({
-        "user_id": user_id,
-        "email": email,
-        "role": role_atribuida,
-    }).execute()
-  except Exception:
-    pass
-
-  return role_atribuida
-
-
-def extrair_primeiro_nome(email):
-  if not email or "@" not in email:
-    return "Visitante"
-  nome_base = email.split("@")[0].split(".")[0]
-  return nome_base.capitalize()
-
-
 # ==========================================
 # ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
 # ==========================================
@@ -596,53 +554,10 @@ def buscar_melhor_solucao_copilot(query, df):
 
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN
+# 3. CONTROLE DE SESSÃO
 # ==========================================
-if "user" not in st.session_state:
-  try:
-    session = supabase.auth.get_session()
-    if session:
-      st.session_state.user = session.user
-      st.session_state.user_role = obter_perfil_usuario(
-          session.user.id, session.user.email
-      )
-    else:
-      st.session_state.user = None
-      st.session_state.user_role = "Visitante"
-  except Exception:
-    st.session_state.user = None
-    st.session_state.user_role = "Visitante"
-
 if "favoritos" not in st.session_state:
   st.session_state.favoritos = []
-
-
-def fazer_login(email, password):
-  try:
-    response = supabase.auth.sign_in_with_password(
-        {"email": email, "password": password}
-    )
-    st.session_state.user = response.user
-    st.session_state.user_role = obter_perfil_usuario(
-        response.user.id, response.user.email
-    )
-    st.session_state.favoritos = []
-    st.toast("Login realizado com sucesso!", icon="✅")
-    st.rerun()
-  except Exception as e:
-    st.error(f"Falha na autenticação: {e}")
-
-
-def fazer_logout():
-  try:
-    supabase.auth.sign_out()
-  except Exception:
-    pass
-  st.session_state.user = None
-  st.session_state.user_role = "Visitante"
-  st.session_state.favoritos = []
-  st.rerun()
-
 
 with st.sidebar:
   if os.path.exists("logo_dark.png"):
@@ -668,24 +583,8 @@ with st.sidebar:
       st.rerun()
 
   st.markdown("---")
-  st.markdown("### 🔐 Área Administrativa")
-
-  if st.session_state.user is None:
-    st.info(
-        "Acesso público liberado. Faça login abaixo apenas se for Administrador."
-    )
-    with st.form("login_sidebar_form"):
-      email_input = st.text_input("E-mail:")
-      password_input = st.text_input("Senha:", type="password")
-      if st.form_submit_button("Entrar como Admin"):
-        if email_input and password_input:
-          fazer_login(email_input, password_input)
-        else:
-          st.warning("Preencha e-mail e senha.")
-  else:
-    st.success(f"Logado como:\n**{st.session_state.user.email}**")
-    if st.button("Sair da Conta (Logout)"):
-      fazer_logout()
+  st.markdown("### 🔓 Modo Sem Restrições")
+  st.info("Todos os usuários possuem permissões totais em todas as funções.")
 
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
@@ -734,17 +633,10 @@ with col_header_left:
     )
 
 with col_header_right:
-  if st.session_state.user:
-    role_badge = f"🛡️ **{st.session_state.user_role}**"
-    primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-    st.markdown(
-        f"👤 **{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True
-    )
-  else:
-    st.markdown(
-        "🌐 **Modo Público (Visitante)**<br>Visualização livre sem restrições",
-        unsafe_allow_html=True,
-    )
+  st.markdown(
+      "🔓 **Acesso Total Liberado**<br>Sem restrições de perfil",
+      unsafe_allow_html=True,
+  )
 
 st.markdown("---")
 
@@ -768,17 +660,16 @@ for col in [
   if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
     df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS
+# CRIAÇÃO DAS ABAS (TODAS VISÍVEIS PARA TODOS)
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Copilot IA",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
     "➕ Cadastrar Tratativa",
+    "📥 Importar & Exportar (TXT)",
+    "📜 Audit Log (Gestão)",
 ]
-if st.session_state.user_role == "Admin":
-  abas_navegacao.append("📥 Importar & Exportar (TXT)")
-  abas_navegacao.append("📜 Audit Log (Gestão)")
 
 tabs = st.tabs(abas_navegacao)
 
@@ -1037,11 +928,7 @@ with tabs[indice_diag]:
         v_neg = row.get("votos_neg", 0) or 0
 
         comentarios = buscar_comentarios(ocor_id)
-        user_email_atual = (
-            st.session_state.user.email
-            if st.session_state.user
-            else "visitante@actuar.group"
-        )
+        user_email_atual = "tecnico@actuar.group"
 
         user_voto = None
         for c in comentarios:
@@ -1088,104 +975,188 @@ with tabs[indice_diag]:
               st.toast("Anotação adicionada!", icon="💬")
               st.rerun()
 
-        if st.session_state.user_role == "Admin":
-          st.markdown("---")
-          with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
-            with st.form(key=f"form_edit_{ocor_id}"):
-              edit_col1, edit_col2 = st.columns(2)
+        # ÁREA DE EDIÇÃO E EXCLUSÃO LIBERADA PARA TODOS
+        st.markdown("---")
+        with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
+          with st.form(key=f"form_edit_{ocor_id}"):
+            edit_col1, edit_col2 = st.columns(2)
 
-              idx_sist = (
-                  LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+            idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+            idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+
+            lista_status = [
+                "🟢 Solução Definitiva",
+                "🟡 Contorno / Paliativo",
+                "🔴 Bug / Em Análise",
+            ]
+            idx_status = (
+                lista_status.index(status) if status in lista_status else 0
+            )
+
+            lista_niveis = [
+                "N1 - Fácil / Rápido",
+                "N2 - Intermediário",
+                "N3 - Avançado / Laboratório",
+            ]
+            idx_nivel = [
+                i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])
+            ]
+            idx_nivel = idx_nivel[0] if idx_nivel else 0
+
+            with edit_col1:
+              edit_hw = st.selectbox(
+                  "⚙️ Catraca / Hardware:",
+                  LISTA_HARDWARE,
+                  index=idx_hw,
+                  key=f"eh_{ocor_id}",
               )
-              idx_hw = (
-                  LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+              edit_status = st.selectbox(
+                  "📌 Status:",
+                  lista_status,
+                  index=idx_status,
+                  key=f"est_{ocor_id}",
               )
-
-              lista_status = [
-                  "🟢 Solução Definitiva",
-                  "🟡 Contorno / Paliativo",
-                  "🔴 Bug / Em Análise",
-              ]
-              idx_status = (
-                  lista_status.index(status) if status in lista_status else 0
+            with edit_col2:
+              edit_sist = st.selectbox(
+                  "💻 Sistema:",
+                  LISTA_SISTEMA,
+                  index=idx_sist,
+                  key=f"es_{ocor_id}",
               )
-
-              lista_niveis = [
-                  "N1 - Fácil / Rápido",
-                  "N2 - Intermediário",
-                  "N3 - Avançado / Laboratório",
-              ]
-              idx_nivel = [
-                  i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])
-              ]
-              idx_nivel = idx_nivel[0] if idx_nivel else 0
-
-              with edit_col1:
-                edit_hw = st.selectbox(
-                    "⚙️ Catraca / Hardware:",
-                    LISTA_HARDWARE,
-                    index=idx_hw,
-                    key=f"eh_{ocor_id}",
-                )
-                edit_status = st.selectbox(
-                    "📌 Status:",
-                    lista_status,
-                    index=idx_status,
-                    key=f"est_{ocor_id}",
-                )
-              with edit_col2:
-                edit_sist = st.selectbox(
-                    "💻 Sistema:",
-                    LISTA_SISTEMA,
-                    index=idx_sist,
-                    key=f"es_{ocor_id}",
-                )
-                edit_nivel = st.selectbox(
-                    "📊 Nível:",
-                    lista_niveis,
-                    index=idx_nivel,
-                    key=f"en_{ocor_id}",
-                )
-
-              edit_prob = st.text_input(
-                  "Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}"
+              edit_nivel = st.selectbox(
+                  "📊 Nível:",
+                  lista_niveis,
+                  index=idx_nivel,
+                  key=f"en_{ocor_id}",
               )
 
-              st.markdown(
-                  "📎 **Editar / Adicionar Arquivos do Problema (Sintoma):**"
+            edit_prob = st.text_input(
+                "Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}"
+            )
+
+            st.markdown(
+                "📎 **Editar / Adicionar Arquivos do Problema (Sintoma):**"
+            )
+            urls_prob_existentes = (
+                [u.strip() for u in str(anexo).split(",") if u.strip()]
+                if anexo and pd.notna(anexo)
+                else []
+            )
+            urls_prob_existentes = list(dict.fromkeys(urls_prob_existentes))
+
+            urls_prob_para_manter = []
+            if urls_prob_existentes:
+              for idx_pi, url_pi in enumerate(urls_prob_existentes):
+                nome_arq_pi = url_pi.split("/")[-1].split("?")[0]
+                cp1, cp2 = st.columns([3, 1])
+                with cp1:
+                  if url_pi.lower().endswith(
+                      (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                  ):
+                    try:
+                      st.image(url_pi, width=150)
+                    except Exception:
+                      st.markdown(f"📄 {nome_arq_pi}")
+                  else:
+                    st.markdown(f"📄 {nome_arq_pi}")
+                with cp2:
+                  if st.checkbox(
+                      "Manter",
+                      value=True,
+                      key=f"manter_prob_{ocor_id}_{idx_pi}",
+                  ):
+                    urls_prob_para_manter.append(url_pi)
+
+            edit_files_prob = st.file_uploader(
+                "Adicionar novos arquivos ao Problema:",
+                type=[
+                    "png",
+                    "jpg",
+                    "jpeg",
+                    "pdf",
+                    "txt",
+                    "docx",
+                    "xlsx",
+                    "csv",
+                    "zip",
+                ],
+                accept_multiple_files=True,
+                key=f"edit_prob_files_{ocor_id}",
+            )
+
+            edit_motivo = st.text_area(
+                "Motivo (Causa Raiz):",
+                value=row.get("motivo", ""),
+                key=f"em_{ocor_id}",
+            )
+
+            st.markdown("### 🛠️ Editar Passos da Solução")
+
+            passos_atuais = []
+            try:
+              if solucao_val and str(solucao_val).strip().startswith("["):
+                passos_atuais = json.loads(str(solucao_val))
+            except Exception:
+              pass
+
+            if not passos_atuais:
+              passos_atuais = [{
+                  "passo": 1,
+                  "texto": str(solucao_val),
+                  "anexo": None,
+              }]
+
+            edit_passos_dados = []
+            for p_num in range(1, 4):
+              p_obj = next(
+                  (x for x in passos_atuais if x.get("passo") == p_num),
+                  {"texto": "", "anexo": None},
               )
-              urls_prob_existentes = (
-                  [u.strip() for u in str(anexo).split(",") if u.strip()]
-                  if anexo and pd.notna(anexo)
+              st.markdown(f"**Passo {p_num}**")
+              e_txt = st.text_area(
+                  f"Texto do Passo {p_num}:",
+                  value=p_obj.get("texto", ""),
+                  key=f"edit_p_txt_{ocor_id}_{p_num}",
+              )
+
+              anexo_atual_passo = p_obj.get("anexo")
+              urls_existentes = (
+                  [
+                      u.strip()
+                      for u in str(anexo_atual_passo).split(",")
+                      if u.strip()
+                  ]
+                  if anexo_atual_passo and pd.notna(anexo_atual_passo)
                   else []
               )
-              urls_prob_existentes = list(dict.fromkeys(urls_prob_existentes))
+              urls_existentes = list(dict.fromkeys(urls_existentes))
 
-              urls_prob_para_manter = []
-              if urls_prob_existentes:
-                for idx_pi, url_pi in enumerate(urls_prob_existentes):
-                  nome_arq_pi = url_pi.split("/")[-1].split("?")[0]
-                  cp1, cp2 = st.columns([3, 1])
-                  with cp1:
-                    if url_pi.lower().endswith(
+              urls_para_manter = []
+              if urls_existentes:
+                st.markdown("📷 *Imagens atuais (desmarque para excluir):*")
+                for idx_img, url_img in enumerate(urls_existentes):
+                  nome_arq = url_img.split("/")[-1].split("?")[0]
+                  col_prev, col_chk = st.columns([3, 1])
+                  with col_prev:
+                    if url_img.lower().endswith(
                         (".png", ".jpg", ".jpeg", ".gif", ".webp")
                     ):
                       try:
-                        st.image(url_pi, width=150)
+                        st.image(url_img, width=150)
                       except Exception:
-                        st.markdown(f"📄 {nome_arq_pi}")
+                        st.markdown(f"📄 {nome_arq}")
                     else:
-                      st.markdown(f"📄 {nome_arq_pi}")
-                  with cp2:
+                      st.markdown(f"📄 {nome_arq}")
+                  with col_chk:
                     if st.checkbox(
                         "Manter",
                         value=True,
-                        key=f"manter_prob_{ocor_id}_{idx_pi}",
+                        key=f"manter_{ocor_id}_{p_num}_{idx_img}",
                     ):
-                      urls_prob_para_manter.append(url_pi)
+                      urls_para_manter.append(url_img)
 
-              edit_files_prob = st.file_uploader(
-                  "Adicionar novos arquivos ao Problema:",
+              e_files = st.file_uploader(
+                  f"Adicionar novas fotos ao Passo {p_num}:",
                   type=[
                       "png",
                       "jpg",
@@ -1198,165 +1169,75 @@ with tabs[indice_diag]:
                       "zip",
                   ],
                   accept_multiple_files=True,
-                  key=f"edit_prob_files_{ocor_id}",
+                  key=f"edit_p_file_{ocor_id}_{p_num}",
               )
 
-              edit_motivo = st.text_area(
-                  "Motivo (Causa Raiz):",
-                  value=row.get("motivo", ""),
-                  key=f"em_{ocor_id}",
-              )
-
-              st.markdown("### 🛠️ Editar Passos da Solução")
-
-              passos_atuais = []
-              try:
-                if solucao_val and str(solucao_val).strip().startswith("["):
-                  passos_atuais = json.loads(str(solucao_val))
-              except Exception:
-                pass
-
-              if not passos_atuais:
-                passos_atuais = [{
-                    "passo": 1,
-                    "texto": str(solucao_val),
-                    "anexo": None,
-                }]
-
-              edit_passos_dados = []
-              for p_num in range(1, 4):
-                p_obj = next(
-                    (x for x in passos_atuais if x.get("passo") == p_num),
-                    {"texto": "", "anexo": None},
+              if e_txt.strip() or urls_para_manter or e_files:
+                novas_urls = (
+                    upload_multiplos_arquivos(e_files) if e_files else None
                 )
-                st.markdown(f"**Passo {p_num}**")
-                e_txt = st.text_area(
-                    f"Texto do Passo {p_num}:",
-                    value=p_obj.get("texto", ""),
-                    key=f"edit_p_txt_{ocor_id}_{p_num}",
-                )
-
-                anexo_atual_passo = p_obj.get("anexo")
-                urls_existentes = (
-                    [
-                        u.strip()
-                        for u in str(anexo_atual_passo).split(",")
-                        if u.strip()
-                    ]
-                    if anexo_atual_passo and pd.notna(anexo_atual_passo)
-                    else []
-                )
-                urls_existentes = list(dict.fromkeys(urls_existentes))
-
-                urls_para_manter = []
-                if urls_existentes:
-                  st.markdown("📷 *Imagens atuais (desmarque para excluir):*")
-                  for idx_img, url_img in enumerate(urls_existentes):
-                    nome_arq = url_img.split("/")[-1].split("?")[0]
-                    col_prev, col_chk = st.columns([3, 1])
-                    with col_prev:
-                      if url_img.lower().endswith(
-                          (".png", ".jpg", ".jpeg", ".gif", ".webp")
-                      ):
-                        try:
-                          st.image(url_img, width=150)
-                        except Exception:
-                          st.markdown(f"📄 {nome_arq}")
-                      else:
-                        st.markdown(f"📄 {nome_arq}")
-                    with col_chk:
-                      if st.checkbox(
-                          "Manter",
-                          value=True,
-                          key=f"manter_{ocor_id}_{p_num}_{idx_img}",
-                      ):
-                        urls_para_manter.append(url_img)
-
-                e_files = st.file_uploader(
-                    f"Adicionar novas fotos ao Passo {p_num}:",
-                    type=[
-                        "png",
-                        "jpg",
-                        "jpeg",
-                        "pdf",
-                        "txt",
-                        "docx",
-                        "xlsx",
-                        "csv",
-                        "zip",
-                    ],
-                    accept_multiple_files=True,
-                    key=f"edit_p_file_{ocor_id}_{p_num}",
-                )
-
-                if e_txt.strip() or urls_para_manter or e_files:
-                  novas_urls = (
-                      upload_multiplos_arquivos(e_files) if e_files else None
-                  )
-                  lista_final_urls = list(urls_para_manter)
-                  if novas_urls:
-                    lista_final_urls.extend([
-                        u.strip() for u in novas_urls.split(",") if u.strip()
-                    ])
-                  lista_final_urls = list(dict.fromkeys(lista_final_urls))
-                  url_final_passo = (
-                      ",".join(lista_final_urls) if lista_final_urls else None
-                  )
-
-                  edit_passos_dados.append({
-                      "passo": p_num,
-                      "texto": e_txt.strip(),
-                      "anexo": url_final_passo,
-                  })
-
-              if st.form_submit_button("💾 Salvar Alterações"):
-                json_solucao_final = (
-                    json.dumps(edit_passos_dados) if edit_passos_dados else ""
-                )
-
-                novas_urls_prob = (
-                    upload_multiplos_arquivos(edit_files_prob)
-                    if edit_files_prob
-                    else None
-                )
-                lista_final_prob = list(urls_prob_para_manter)
-                if novas_urls_prob:
-                  lista_final_prob.extend([
-                      u.strip() for u in novas_urls_prob.split(",") if u.strip()
+                lista_final_urls = list(urls_para_manter)
+                if novas_urls:
+                  lista_final_urls.extend([
+                      u.strip() for u in novas_urls.split(",") if u.strip()
                   ])
-                lista_final_prob = list(dict.fromkeys(lista_final_prob))
-                anexo_url_final = (
-                    ",".join(lista_final_prob) if lista_final_prob else None
+                lista_final_urls = list(dict.fromkeys(lista_final_urls))
+                url_final_passo = (
+                    ",".join(lista_final_urls) if lista_final_urls else None
                 )
 
-                dados_novos = {
-                    "sistema": edit_sist,
-                    "equipamento": edit_hw,
-                    "problema": edit_prob,
-                    "motivo": edit_motivo,
-                    "solucao": json_solucao_final,
-                    "status": edit_status,
-                    "nivel": edit_nivel,
-                    "anexo_url": anexo_url_final,
-                }
+                edit_passos_dados.append({
+                    "passo": p_num,
+                    "texto": e_txt.strip(),
+                    "anexo": url_final_passo,
+                })
 
-                if atualizar_ocorrencia_db(
-                    ocor_id, dados_novos, st.session_state.user.email
-                ):
-                  st.toast(
-                      f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅"
-                  )
-                  st.rerun()
+            if st.form_submit_button("💾 Salvar Alterações"):
+              json_solucao_final = (
+                  json.dumps(edit_passos_dados) if edit_passos_dados else ""
+              )
 
-          if st.button(
-              f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"
-          ):
-            sucesso = deletar_ocorrencia_db(
-                ocor_id, st.session_state.user.email
-            )
-            if sucesso:
-              st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
-              st.rerun()
+              novas_urls_prob = (
+                  upload_multiplos_arquivos(edit_files_prob)
+                  if edit_files_prob
+                  else None
+              )
+              lista_final_prob = list(urls_prob_para_manter)
+              if novas_urls_prob:
+                lista_final_prob.extend([
+                    u.strip() for u in novas_urls_prob.split(",") if u.strip()
+                ])
+              lista_final_prob = list(dict.fromkeys(lista_final_prob))
+              anexo_url_final = (
+                  ",".join(lista_final_prob) if lista_final_prob else None
+              )
+
+              dados_novos = {
+                  "sistema": edit_sist,
+                  "equipamento": edit_hw,
+                  "problema": edit_prob,
+                  "motivo": edit_motivo,
+                  "solucao": json_solucao_final,
+                  "status": edit_status,
+                  "nivel": edit_nivel,
+                  "anexo_url": anexo_url_final,
+              }
+
+              if atualizar_ocorrencia_db(
+                  ocor_id, dados_novos, "tecnico@actuar.group"
+              ):
+                st.toast(
+                    f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅"
+                )
+                st.rerun()
+
+        if st.button(
+            f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"
+        ):
+          sucesso = deletar_ocorrencia_db(ocor_id, "tecnico@actuar.group")
+          if sucesso:
+            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
+            st.rerun()
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
@@ -1665,11 +1546,7 @@ with tabs[indice_cad]:
         url_anexo_prob = (
             upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
         )
-        autor_reg = (
-            st.session_state.user.email
-            if st.session_state.user
-            else "visitante@actuar.group"
-        )
+        autor_reg = "tecnico@actuar.group"
 
         dados = {
             "sistema": in_sist,
@@ -1692,122 +1569,111 @@ with tabs[indice_cad]:
 # ==========================================
 # ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
-if (
-    st.session_state.user_role == "Admin"
-    and "📥 Importar & Exportar (TXT)" in abas_navegacao
-):
-  indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
-  with tabs[indice_export]:
-    st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-    st.caption(
-        "Importe ocorrências em lote através de um arquivo `.TXT` estruturado"
-        " ou baixe todo o histórico (ou apenas os filtrados)."
+indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
+with tabs[indice_export]:
+  st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
+  st.caption(
+      "Importe ocorrências em lote através de um arquivo `.TXT` estruturado"
+      " ou baixe todo o histórico (ou apenas os filtrados)."
+  )
+
+  st.markdown("### 📤 Importar Ocorrências em Lote")
+  with st.form("form_import_txt"):
+    arquivo_txt = st.file_uploader(
+        "Selecione o arquivo .TXT estruturado:", type=["txt"]
+    )
+    submitted_import = st.form_submit_button("🚀 Processar e Importar Ocorrências")
+    if submitted_import:
+      if arquivo_txt is not None:
+        qtd = processar_importacao_txt(
+            arquivo_txt.getvalue(), "tecnico@actuar.group"
+        )
+        if qtd > 0:
+          st.success(f"{qtd} ocorrências foram importadas com sucesso!")
+          time.sleep(1)
+          st.rerun()
+        else:
+          st.warning("Nenhuma ocorrência válida encontrada.")
+      else:
+        st.warning("Envie um arquivo .TXT válido.")
+
+  st.markdown("---")
+  st.markdown("### 📥 Exportar Base de Dados")
+  if df_ocorrencias.empty:
+    st.info("O banco de dados está vazio.")
+  else:
+    tipo_export = st.radio(
+        "Selecione o escopo da exportação:",
+        [
+            "Base Completa",
+            "Apenas Resultados Filtrados (aba Diagnósticos)",
+        ],
+        horizontal=True,
     )
 
-    st.markdown("### 📤 Importar Ocorrências em Lote")
-    with st.form("form_import_txt"):
-      arquivo_txt = st.file_uploader(
-          "Selecione o arquivo .TXT estruturado:", type=["txt"]
-      )
-      submitted_import = st.form_submit_button(
-          "🚀 Processar e Importar Ocorrências"
-      )
-      if submitted_import:
-        if arquivo_txt is not None:
-          qtd = processar_importacao_txt(
-              arquivo_txt.getvalue(), st.session_state.user.email
-          )
-          if qtd > 0:
-            st.success(f"{qtd} ocorrências foram importadas com sucesso!")
-            time.sleep(1)
-            st.rerun()
-          else:
-            st.warning("Nenhuma ocorrência válida encontrada.")
-        else:
-          st.warning("Envie um arquivo .TXT válido.")
+    df_para_exportar = (
+        df_ocorrencias
+        if tipo_export == "Base Completa"
+        else st.session_state.get("df_filtered", df_ocorrencias)
+    )
 
-    st.markdown("---")
-    st.markdown("### 📥 Exportar Base de Dados")
-    if df_ocorrencias.empty:
-      st.info("O banco de dados está vazio.")
-    else:
-      tipo_export = st.radio(
-          "Selecione o escopo da exportação:",
-          [
-              "Base Completa",
-              "Apenas Resultados Filtrados (aba Diagnósticos)",
-          ],
-          horizontal=True,
-      )
+    st.info(
+        "Total de registros incluídos nesta exportação:"
+        f" **{len(df_para_exportar)}**"
+    )
 
-      df_para_exportar = (
-          df_ocorrencias
-          if tipo_export == "Base Completa"
-          else st.session_state.get("df_filtered", df_ocorrencias)
-      )
+    conteudo_txt = ""
+    for _, row in df_para_exportar.iterrows():
+      conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
+      conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
+      conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
+      conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
+      conteudo_txt += "-" * 50 + "\n\n"
 
-      st.info(
-          "Total de registros incluídos nesta exportação:"
-          f" **{len(df_para_exportar)}**"
-      )
+    nome_arquivo_download = (
+        "base_conhecimento_actuar_filtrada.txt"
+        if tipo_export != "Base Completa"
+        else "base_conhecimento_actuar.txt"
+    )
 
-      conteudo_txt = ""
-      for _, row in df_para_exportar.iterrows():
-        conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
-        conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
-        conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
-        conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
-        conteudo_txt += "-" * 50 + "\n\n"
-
-      nome_arquivo_download = (
-          "base_conhecimento_actuar_filtrada.txt"
-          if tipo_export != "Base Completa"
-          else "base_conhecimento_actuar.txt"
-      )
-
-      st.download_button(
-          label=(
-              f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)}"
-              " registros)"
-          ),
-          data=conteudo_txt,
-          file_name=nome_arquivo_download,
-          mime="text/plain",
-      )
+    st.download_button(
+        label=(
+            f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)} registros)"
+        ),
+        data=conteudo_txt,
+        file_name=nome_arquivo_download,
+        mime="text/plain",
+    )
 
 # ==========================================
 # ABA 7: AUDIT LOG
 # ==========================================
-if (
-    st.session_state.user_role == "Admin"
-    and "📜 Audit Log (Gestão)" in abas_navegacao
-):
-  indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
-  with tabs[indice_audit]:
-    st.subheader("📜 Histórico de Auditoria (Audit Log)")
-    st.caption("Acompanhe todas as interações e alterações realizadas.")
+indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
+with tabs[indice_audit]:
+  st.subheader("📜 Histórico de Auditoria (Audit Log)")
+  st.caption("Acompanhe todas as interações e alterações realizadas.")
 
-    try:
-      res_logs = (
-          supabase.table("audit_logs")
-          .select("*")
-          .order("id", desc=True)
-          .limit(100)
-          .execute()
+  try:
+    res_logs = (
+        supabase.table("audit_logs")
+        .select("*")
+        .order("id", desc=True)
+        .limit(100)
+        .execute()
+    )
+    df_logs = pd.DataFrame(res_logs.data)
+    if not df_logs.empty:
+      st.dataframe(
+          df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
+          column_config={
+              "created_at": "Data/Hora",
+              "usuario_email": "Usuário",
+              "acao": "Ação",
+              "detalhes": "Detalhamento",
+          },
+          use_container_width=True,
       )
-      df_logs = pd.DataFrame(res_logs.data)
-      if not df_logs.empty:
-        st.dataframe(
-            df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
-            column_config={
-                "created_at": "Data/Hora",
-                "usuario_email": "Usuário",
-                "acao": "Ação",
-                "detalhes": "Detalhamento",
-            },
-            use_container_width=True,
-        )
-      else:
-        st.info("Nenhum histórico registrado no momento.")
-    except Exception as e:
-      st.error(f"Erro ao carregar log: {e}")
+    else:
+      st.info("Nenhum histórico registrado no momento.")
+  except Exception as e:
+    st.error(f"Erro ao carregar log: {e}")
