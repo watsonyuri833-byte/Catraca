@@ -176,7 +176,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
         blocos = texto.split("Erro:")
         importadas = 0
         
-        for bloco in blocos:
+        for bloco in blocs := blocos:
             if not bloco.strip():
                 continue
             
@@ -405,6 +405,35 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
+# ==========================================
+def buscar_melhor_solucao_copilot(query, df):
+    if df.empty or not query:
+        return []
+    
+    stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "não", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ele", "seu", "sua", "ou", "quando", "muito", "nos", "já", "só", "pelo", "pela", "até", "isso", "ela", "entre", "depois", "sem", "mesmo", "aos", "também"}
+    palavras_query = [p.lower() for p in re.findall(r'\w+', query) if p.lower() not in stopwords and len(p) > 2]
+    
+    if not palavras_query:
+        return []
+        
+    resultados = []
+    for _, row in df.iterrows():
+        texto_base = f"{row.get('problema', '')} {row.get('motivo', '')} {row.get('equipamento', '')} {row.get('sistema', '')} {row.get('solucao', '')}".lower()
+        score = 0
+        for p in palavras_query:
+            if p in texto_base:
+                if p in str(row.get('problema', '')).lower() or p in str(row.get('equipamento', '')).lower():
+                    score += 3
+                else:
+                    score += 1
+        if score > 0:
+            resultados.append((score, row))
+            
+    resultados.sort(key=lambda x: x[0], reverse=True)
+    return [r[1] for r in resultados[:3]]
+
+# ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN
 # ==========================================
 if "user" not in st.session_state:
@@ -505,8 +534,8 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS
-abas_navegacao = ["📋 Diagnósticos", "📺 Modo TV", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
+# CRIAÇÃO DAS ABAS (COM COPILOT IA)
+abas_navegacao = ["📋 Diagnósticos", "🤖 Copilot IA", "📺 Modo TV", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Importar & Exportar (TXT)")
     abas_navegacao.append("📜 Audit Log (Gestão)")
@@ -581,7 +610,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA 1: CONSULTA COM TABELA INTERATIVA (SELEÇÃO POR CLIQUE)
+# ABA 1: CONSULTA COM TABELA INTERATIVA
 # ==========================================
 indice_diag = abas_navegacao.index("📋 Diagnósticos")
 with tabs[indice_diag]:
@@ -619,7 +648,6 @@ with tabs[indice_diag]:
                     df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
                 ]
 
-    # Salva o dataframe filtrado no session_state para uso na exportação
     st.session_state.df_filtered = df_filtered
 
     if df_filtered.empty:
@@ -878,7 +906,74 @@ with tabs[indice_diag]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: MODO TV (PAINEL DE MONITORAMENTO)
+# ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
+# ==========================================
+indice_copilot = abas_navegacao.index("🤖 Copilot IA")
+with tabs[indice_copilot]:
+    st.subheader("🤖 Assistente Inteligente de Diagnóstico (Copilot)")
+    st.markdown("Descreva o problema ou sintoma em **linguagem natural** (ex: *A catraca do cliente perdeu a conexão com o IP após a atualização*). O Copilot cruzará os dados da base de conhecimento instantaneamente para sugerir o procedimento ideal.")
+    
+    if "copilot_messages" not in st.session_state:
+        st.session_state.copilot_messages = [
+            {"role": "assistant", "content": "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente de campo ou o sintoma que você está enfrentando para que eu encontre a solução exata."}
+        ]
+        
+    for msg in st.session_state.copilot_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if "matches" in msg and msg["matches"]:
+                for m in msg["matches"]:
+                    with st.expander(f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} / {m['equipamento']})"):
+                        st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
+                        renderizar_solucao_estruturada(m['solucao'], m['anexo_url'])
+                        
+    user_query = st.chat_input("Ex: Catraca travou na leitura facial após reiniciar o serviço...")
+    if user_query:
+        st.session_state.copilot_messages.append({"role": "user", "content": user_query})
+        with st.chat_message("user"):
+            st.markdown(user_query)
+            
+        with st.chat_message("assistant"):
+            with st.spinner("Analisando base de conhecimento e cruzando dados..."):
+                time.sleep(0.4)
+                matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
+                
+                if matches_raw:
+                    resposta_texto = f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is) na base de conhecimento para o seu relato:"
+                    st.markdown(resposta_texto)
+                    
+                    match_dicts = []
+                    for row in matches_raw:
+                        m_dict = {
+                            "id": int(row["id"]),
+                            "problema": row.get("problema", ""),
+                            "motivo": row.get("motivo", ""),
+                            "sistema": row.get("sistema", ""),
+                            "equipamento": row.get("equipamento", ""),
+                            "solucao": row.get("solucao", ""),
+                            "anexo_url": row.get("anexo_url", "")
+                        }
+                        match_dicts.append(m_dict)
+                        with st.expander(f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']} ({m_dict['sistema']} / {m_dict['equipamento']})"):
+                            st.markdown(f"**Motivo / Causa Raiz:** {m_dict['motivo']}")
+                            renderizar_solucao_estruturada(m_dict['solucao'], m_dict['anexo_url'])
+                            
+                    st.session_state.copilot_messages.append({
+                        "role": "assistant",
+                        "content": resposta_texto,
+                        "matches": match_dicts
+                    })
+                else:
+                    resposta_texto = "Não encontrei nenhuma tratativa exata na base para este problema específico. Recomendo verificar com a equipe sênior ou cadastrar este novo caso após resolvê-lo na aba **Cadastrar Tratativa**."
+                    st.markdown(resposta_texto)
+                    st.session_state.copilot_messages.append({
+                        "role": "assistant",
+                        "content": resposta_texto,
+                        "matches": []
+                    })
+
+# ==========================================
+# ABA 3: MODO TV
 # ==========================================
 indice_tv = abas_navegacao.index("📺 Modo TV")
 with tabs[indice_tv]:
@@ -923,7 +1018,7 @@ with tabs[indice_tv]:
             st.rerun()
 
 # ==========================================
-# ABA 3: MEUS FAVORITOS
+# ABA 4: MEUS FAVORITOS
 # ==========================================
 indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
 with tabs[indice_fav]:
@@ -963,7 +1058,7 @@ with tabs[indice_fav]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 4: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
+# ABA 5: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -1026,7 +1121,7 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
 
 # ==========================================
-# ABA 5: IMPORTAR & EXPORTAR BANCO EM TXT (ATUALIZADO PARA FILTRADOS)
+# ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in abas_navegacao:
     indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
@@ -1083,7 +1178,7 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
             )
 
 # ==========================================
-# ABA 6: AUDIT LOG
+# ABA 7: AUDIT LOG
 # ==========================================
 if st.session_state.user_role == "Admin" and "📜 Audit Log (Gestão)" in abas_navegacao:
     indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
