@@ -176,7 +176,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
         blocos = texto.split("Erro:")
         importadas = 0
         
-        for bloco in blocos:
+        for bloco in blocs := blocos:
             if not bloco.strip():
                 continue
             
@@ -405,14 +405,13 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (ATUALIZADO)
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
 # ==========================================
 def buscar_melhor_solucao_copilot(query, df):
     if df.empty or not query:
         return []
     
-    # 'não' foi removido das stopwords para preservar o sentido de negação em erros técnicos
-    stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ele", "seu", "sua", "ou", "quando", "muito", "nos", "já", "só", "pelo", "pela", "até", "isso", "ela", "entre", "depois", "sem", "mesmo", "aos", "também"}
+    stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "não", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ele", "seu", "sua", "ou", "quando", "muito", "nos", "já", "só", "pelo", "pela", "até", "isso", "ela", "entre", "depois", "sem", "mesmo", "aos", "também"}
     palavras_query = [p.lower() for p in re.findall(r'\w+', query) if p.lower() not in stopwords and len(p) > 2]
     
     if not palavras_query:
@@ -422,21 +421,12 @@ def buscar_melhor_solucao_copilot(query, df):
     for _, row in df.iterrows():
         texto_base = f"{row.get('problema', '')} {row.get('motivo', '')} {row.get('equipamento', '')} {row.get('sistema', '')} {row.get('solucao', '')}".lower()
         score = 0
-        
         for p in palavras_query:
-            # 1. Correspondência exata na base
             if p in texto_base:
                 if p in str(row.get('problema', '')).lower() or p in str(row.get('equipamento', '')).lower():
                     score += 3
                 else:
                     score += 1
-            else:
-                # 2. Correspondência parcial inteligente (ex: 'identif' casa com 'identificado' ou similaridades)
-                for palavra_texto in re.findall(r'\w+', texto_base):
-                    if len(p) >= 4 and (p in palavra_texto or palavra_texto in p):
-                        score += 1.5
-                        break
-                        
         if score > 0:
             resultados.append((score, row))
             
