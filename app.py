@@ -181,7 +181,7 @@ def processar_importacao_txt(file_bytes, usuario_email):
         blocos = texto.split("Erro:")
         importadas = 0
         
-        for bloco in blocos:
+        for bloco in blocs := blocos:
             if not bloco.strip():
                 continue
             
@@ -472,13 +472,13 @@ abas_navegacao = [
 
 tabs = st.tabs(abas_navegacao)
 
-def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
+def renderizar_solucao_estruturada(solucao_data, anexo_global=None, ocor_id_contexto="geral"):
     if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
         urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
         urls_problema = list(dict.fromkeys(urls_problema))
         
         if urls_problema:
-            with st.expander(f"📎 Ver Evidências do Problema (Sintoma) — {len(urls_problema)} arquivo(s)", expanded=False):
+            with st.expander(f"📎 Ver Evidências do Problema (Sintoma) — {len(urls_problema)} arquivo(s)", expanded=False, key=f"exp_prob_{ocor_id_contexto}"):
                 for idx_prob, url_file in enumerate(urls_problema):
                     nome_arquivo = url_file.split("/")[-1].split("?")[0]
                     if "_" in nome_arquivo:
@@ -518,7 +518,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
                 urls_passo = list(dict.fromkeys(urls_passo))
                 
                 if urls_passo:
-                    with st.expander(f"📷 Ver Anexos do Passo {num_passo} — {len(urls_passo)} arquivo(s)", expanded=False):
+                    with st.expander(f"📷 Ver Anexos do Passo {num_passo} — {len(urls_passo)} arquivo(s)", expanded=False, key=f"exp_passo_{ocor_id_contexto}_{num_passo}"):
                         for idx_f, url_file in enumerate(urls_passo):
                             nome_arquivo = url_file.split("/")[-1].split("?")[0]
                             if "_" in nome_arquivo:
@@ -653,7 +653,7 @@ with tabs[indice_diag]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
                 
-                renderizar_solucao_estruturada(solucao_val, anexo)
+                renderizar_solucao_estruturada(solucao_val, anexo, ocor_id_contexto=f"diag_{ocor_id}")
 
                 st.markdown("---")
                 v_pos = row.get('votos_pos', 0) or 0
@@ -699,7 +699,7 @@ with tabs[indice_diag]:
                             st.rerun()
 
                 st.markdown("---")
-                with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
+                with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}", key=f"exp_edit_relato_{ocor_id}"):
                     with st.form(key=f"form_edit_{ocor_id}"):
                         edit_col1, edit_col2 = st.columns(2)
                         
@@ -847,14 +847,14 @@ with tabs[indice_copilot]:
             {"role": "assistant", "content": "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente de campo ou o sintoma que você está enfrentando para que eu encontre a solução exata."}
         ]
         
-    for msg in st.session_state.copilot_messages:
+    for idx_msg, msg in enumerate(st.session_state.copilot_messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if "matches" in msg and msg["matches"]:
-                for m in msg["matches"]:
-                    with st.expander(f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} / {m['equipamento']})"):
+                for idx_m, m in enumerate(msg["matches"]):
+                    with st.expander(f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} / {m['equipamento']})", key=f"exp_copilot_msg_{idx_msg}_{idx_m}_{m['id']}"):
                         st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
-                        renderizar_solucao_estruturada(m['solucao'], m['anexo_url'])
+                        renderizar_solucao_estruturada(m['solucao'], m['anexo_url'], ocor_id_contexto=f"copilot_{idx_msg}_{idx_m}_{m['id']}")
                         
     user_query = st.chat_input("Ex: Catraca travou na leitura facial após reiniciar o serviço...")
     if user_query:
@@ -872,7 +872,7 @@ with tabs[indice_copilot]:
                     st.markdown(resposta_texto)
                     
                     match_dicts = []
-                    for row in matches_raw:
+                    for idx_m, row in enumerate(matches_raw):
                         m_dict = {
                             "id": int(row["id"]),
                             "problema": row.get("problema", ""),
@@ -883,9 +883,9 @@ with tabs[indice_copilot]:
                             "anexo_url": row.get("anexo_url", "")
                         }
                         match_dicts.append(m_dict)
-                        with st.expander(f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']} ({m_dict['sistema']} / {m_dict['equipamento']})"):
+                        with st.expander(f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']} ({m_dict['sistema']} / {m_dict['equipamento']})", key=f"exp_copilot_new_{idx_m}_{m_dict['id']}"):
                             st.markdown(f"**Motivo / Causa Raiz:** {m_dict['motivo']}")
-                            renderizar_solucao_estruturada(m_dict['solucao'], m_dict['anexo_url'])
+                            renderizar_solucao_estruturada(m_dict['solucao'], m_dict['anexo_url'], ocor_id_contexto=f"copilot_new_{idx_m}_{m_dict['id']}")
                             
                     st.session_state.copilot_messages.append({
                         "role": "assistant",
@@ -971,7 +971,7 @@ with tabs[indice_fav]:
             
             titulo_card_fav = f"⭐ [FAVORITO] {prob}  |  📂 [{sist} • {hw}]  —  {status}"
             
-            with st.expander(titulo_card_fav):
+            with st.expander(titulo_card_fav, key=f"exp_fav_{ocor_id}"):
                 if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
                     st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
                     st.toast("Removido dos favoritos!", icon="🗑️")
@@ -984,7 +984,7 @@ with tabs[indice_fav]:
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
-                renderizar_solucao_estruturada(solucao_val, anexo)
+                renderizar_solucao_estruturada(solucao_val, anexo, ocor_id_contexto=f"fav_{ocor_id}")
 
 # ==========================================
 # ABA 5: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
