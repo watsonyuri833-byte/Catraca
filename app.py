@@ -619,11 +619,9 @@ with col_header_right:
 
 st.markdown("---")
 
-# CARREGAMENTO COM TRATAMENTO DE ERRO EXPLICITADO
 try:
   df_ocorrencias = buscar_ocorrencias_db()
-except Exception as e:
-  st.error(f"⚠️ Erro ao carregar ocorrências do Supabase: {e}")
+except Exception:
   df_ocorrencias = pd.DataFrame()
 
 for col in [
@@ -742,7 +740,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
 
 
 # ==========================================
-# ABA 1: CONSULTA COM BUSCA INTELIGENTE (FLEXÍVEL) E TABELA INTERATIVA
+# ABA 1: CONSULTA COM TABELA INTERATIVA (SELEÇÃO POR CLIQUE)
 # ==========================================
 with tabs[0]:
   st.subheader("🔍 Base Mapeada de Ocorrências")
@@ -761,12 +759,11 @@ with tabs[0]:
     hw_opt = ["Todos"] + sorted(list(hw_base))
     f_hw = st.selectbox("Filtrar por Hardware:", hw_opt, key="f_hw_tab0")
   with col_f3:
-    # BUSCA INTELIGENTE COM PLACEHOLDER EDUCATIVO
     f_busca = st.text_input(
-        "🔍 O que está acontecendo?",
+        "🔍 Buscar termo ou palavra-chave:",
         "",
         key="f_busca_tab0",
-        placeholder="Ex: Tente 'catraca travada', 'erro 500', 'biometria'...",
+        placeholder="Ex: DLL, facial, timeout, IP...",
     )
 
   df_filtered = df_ocorrencias.copy()
@@ -775,40 +772,34 @@ with tabs[0]:
       df_filtered = df_filtered[df_filtered["sistema"] == f_sist]
     if f_hw != "Todos":
       df_filtered = df_filtered[df_filtered["equipamento"] == f_hw]
-    
-    # BUSCA FLEXÍVEL POR TOKENS (PERMITE ESCREVER TERMOS SOLTOS OU FORA DE ORDEM)
     if f_busca:
-      palavras = f_busca.strip().split()
-      if palavras:
-        condicao_busca = pd.Series([False] * len(df_filtered), index=df_filtered.index)
-        for palavra in palavras:
-          match_palavra = (
-              df_filtered["problema"]
-              .astype(str)
-              .str.contains(palavra, case=False, na=False)
-              | df_filtered["motivo"]
-              .astype(str)
-              .str.contains(palavra, case=False, na=False)
-              | df_filtered["solucao"]
-              .astype(str)
-              .str.contains(palavra, case=False, na=False)
-          )
-          condicao_busca = condicao_busca | match_palavra
-        df_filtered = df_filtered[condicao_busca]
+      df_filtered = df_filtered[
+          df_filtered["problema"]
+          .astype(str)
+          .str.contains(f_busca, case=False, na=False)
+          | df_filtered["motivo"]
+          .astype(str)
+          .str.contains(f_busca, case=False, na=False)
+          | df_filtered["solucao"]
+          .astype(str)
+          .str.contains(f_busca, case=False, na=False)
+      ]
 
   if df_filtered.empty:
-    st.info("Nenhuma ocorrência encontrada com os termos ou filtros selecionados.")
+    st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
   else:
     st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
     st.caption(
-        "💡 **Dica:** Digite palavras soltas (ex: *travada facial*) para encontrar resultados relacionados. **Clique diretamente na linha** da tabela abaixo para carregar os detalhes."
+        "💡 **Como usar:** Digite acima para refinar a busca e **clique"
+        " diretamente na linha** da tabela abaixo para carregar os detalhes"
+        " completos."
     )
 
     df_display = df_filtered[
         ["id", "sistema", "equipamento", "problema", "status", "nivel"]
     ].copy()
 
-    # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
+    # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA (CORRIGIDO PARA on_select)
     evento_tabela = st.dataframe(
         df_display,
         column_config={
