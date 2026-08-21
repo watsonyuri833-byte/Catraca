@@ -132,7 +132,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS (COM SUPORTE A FALLBACK)
+# 2. CONEXÃO E BANCO DE DADOS
 # ==========================================
 default_url = st.secrets.get("SUPABASE_URL", "")
 default_key = st.secrets.get("SUPABASE_KEY", "")
@@ -554,7 +554,7 @@ def buscar_melhor_solucao_copilot(query, df):
 
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO
+# 3. CONTROLE DE SESSÃO E SIDEBAR LIMPA
 # ==========================================
 if "favoritos" not in st.session_state:
   st.session_state.favoritos = []
@@ -564,23 +564,6 @@ with st.sidebar:
     st.image("logo_dark.png", width=70)
   elif os.path.exists("logo.png"):
     st.image("logo.png", width=70)
-
-  # Bloco de Fallback para Evitar Erro 401
-  st.markdown("### ⚙️ Configuração Supabase")
-  with st.expander("🔑 Ajustar Chaves (Anti-Erro 401)", expanded=False):
-    novo_url = st.text_input(
-        "Supabase URL", value=st.session_state.override_url
-    )
-    nova_key = st.text_input(
-        "Supabase Key (anon)",
-        value=st.session_state.override_key,
-        type="password",
-    )
-    if st.button("Atualizar Conexão"):
-      st.session_state.override_url = novo_url
-      st.session_state.override_key = nova_key
-      st.cache_resource.clear()
-      st.rerun()
 
   st.markdown("---")
   st.markdown("### 🔓 Modo Sem Restrições")
