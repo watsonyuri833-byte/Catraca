@@ -621,13 +621,13 @@ with tabs[0]:
         st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
         st.caption("💡 **Como usar:** Digite acima para refinar a busca e **clique diretamente na linha** da tabela abaixo para carregar os detalhes completos.")
         
-        df_display = df_filtered[["id", "sistema", "equipamento", "problema", "status", "nivel"]].copy()
+        # Removido o ID da exibição na tabela
+        df_display = df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]].copy().reset_index(drop=True)
         
         # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
         evento_tabela = st.dataframe(
             df_display,
             column_config={
-                "id": "ID",
                 "sistema": "Sistema",
                 "equipamento": "Hardware",
                 "problema": "Problema (Sintoma)",
@@ -649,7 +649,8 @@ with tabs[0]:
             
         if selected_rows:
             idx_tabela = selected_rows[0]
-            ocor_id_selecionado = int(df_display.iloc[idx_tabela]["id"])
+            df_filtered_reset = df_filtered.reset_index(drop=True)
+            ocor_id_selecionado = int(df_filtered_reset.iloc[idx_tabela]["id"])
         
         if ocor_id_selecionado:
             row = df_filtered[df_filtered["id"] == ocor_id_selecionado].iloc[0]
