@@ -138,10 +138,15 @@ def init_supabase() -> Client:
     return create_client(url, key)
 
 supabase = init_supabase()
+USUARIO_PADRAO = "analista@actuar.group"
 
 def buscar_ocorrencias_db():
-    res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao buscar ocorrências no Supabase: {e}")
+        return pd.DataFrame()
 
 def registrar_log(usuario_email, acao, detalhes):
     try:
@@ -370,20 +375,13 @@ def upload_multiplos_arquivos(files):
     urls = list(dict.fromkeys(urls))
     return ",".join(urls) if urls else None
 
-def extrair_primeiro_nome(email):
-    if not email or "@" not in email:
-        return "Visitante"
-    nome_base = email.split("@")[0].split(".")[0]
-    return nome_base.capitalize()
-
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (ATUALIZADO)
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
 # ==========================================
 def buscar_melhor_solucao_copilot(query, df):
     if df.empty or not query:
         return []
     
-    # 'não' foi removido das stopwords para preservar o sentido de negação em erros técnicos
     stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ele", "seu", "sua", "ou", "quando", "muito", "nos", "já", "só", "pelo", "pela", "até", "isso", "ela", "entre", "depois", "sem", "mesmo", "aos", "também"}
     palavras_query = [p.lower() for p in re.findall(r'\w+', query) if p.lower() not in stopwords and len(p) > 2]
     
@@ -396,14 +394,12 @@ def buscar_melhor_solucao_copilot(query, df):
         score = 0
         
         for p in palavras_query:
-            # 1. Correspondência exata na base
             if p in texto_base:
                 if p in str(row.get('problema', '')).lower() or p in str(row.get('equipamento', '')).lower():
                     score += 3
                 else:
                     score += 1
             else:
-                # 2. Correspondência parcial inteligente (ex: 'identif' casa com 'identificado' ou similaridades)
                 for palavra_texto in re.findall(r'\w+', texto_base):
                     if len(p) >= 4 and (p in palavra_texto or palavra_texto in p):
                         score += 1.5
@@ -416,36 +412,10 @@ def buscar_melhor_solucao_copilot(query, df):
     return [r[1] for r in resultados[:3]]
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E IDENTIFICAÇÃO SIMPLES
+# 3. CONTROLE DE SESSÃO E SIDEBAR LIMPA
 # ==========================================
-if "user" not in st.session_state:
-    session = supabase.auth.get_session()
-    if session:
-        st.session_state.user = session.user
-    else:
-        st.session_state.user = None
-
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
-
-def fazer_login(email, password):
-    try:
-        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        st.session_state.user = response.user
-        st.session_state.favoritos = []
-        st.toast("Login realizado com sucesso!", icon="✅")
-        st.rerun()
-    except Exception as e:
-        st.error(f"Falha na autenticação: {e}")
-
-def fazer_logout():
-    try:
-        supabase.auth.sign_out()
-    except Exception:
-        pass
-    st.session_state.user = None
-    st.session_state.favoritos = []
-    st.rerun()
 
 with st.sidebar:
     if os.path.exists("logo_dark.png"):
@@ -453,25 +423,11 @@ with st.sidebar:
     elif os.path.exists("logo.png"):
         st.image("logo.png", width=70)
         
-    st.markdown("### 🔐 Identificação")
-    
-    if st.session_state.user is None:
-        st.info("Acesso livre ativado. Opcionalmente, faça login para registrar sua autoria nas ações.")
-        with st.form("login_sidebar_form"):
-            email_input = st.text_input("E-mail:")
-            password_input = st.text_input("Senha:", type="password")
-            if st.form_submit_button("Entrar"):
-                if email_input and password_input:
-                    fazer_login(email_input, password_input)
-                else:
-                    st.warning("Preencha e-mail e senha.")
-    else:
-        st.success(f"Logado como:\n**{st.session_state.user.email}**")
-        if st.button("Sair da Conta (Logout)"):
-            fazer_logout()
+    st.markdown("### 🌐 Engineering Hub")
+    st.success("Acesso Total e Livre ativado para todos os usuários.")
 
 # ==========================================
-# 4. CABEÇALHO E ESTRUTURA DE ABAS (TODOS COM ACESSO TOTAL)
+# 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
 LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Edizz", "AcDesk", "Não se aplica / Geral", "Outro Sistema", "Indiferente"]
 LISTA_HARDWARE = [
@@ -494,24 +450,16 @@ with col_header_left:
         st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
 
 with col_header_right:
-    if st.session_state.user:
-        primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
-        st.markdown(f"👤 **{primeiro_nome_logado}**<br>🛡️ **Acesso Total Liberado**", unsafe_allow_html=True)
-    else:
-        st.markdown("🌐 **Modo Geral**<br>Acesso Total Liberado", unsafe_allow_html=True)
+    st.markdown("🌐 **Modo Geral**<br>🛡️ **Acesso Total Liberado**", unsafe_allow_html=True)
 
 st.markdown("---")
 
-try:
-    df_ocorrencias = buscar_ocorrencias_db()
-except Exception:
-    df_ocorrencias = pd.DataFrame()
+df_ocorrencias = buscar_ocorrencias_db()
 
 for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# TODAS AS ABAS DISPONÍVEIS PARA TODOS OS USUÁRIOS
 abas_navegacao = [
     "📋 Diagnósticos", 
     "🤖 Copilot IA", 
@@ -712,7 +660,7 @@ with tabs[indice_diag]:
                 v_neg = row.get('votos_neg', 0) or 0
                 
                 comentarios = buscar_comentarios(ocor_id)
-                user_email_atual = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
+                user_email_atual = USUARIO_PADRAO
                 
                 user_voto = None
                 for c in comentarios:
@@ -750,7 +698,6 @@ with tabs[indice_diag]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # BOTÕES DE EDIÇÃO E EXCLUSÃO DISPONÍVEIS PARA TODOS
                 st.markdown("---")
                 with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
                     with st.form(key=f"form_edit_{ocor_id}"):
@@ -877,25 +824,23 @@ with tabs[indice_diag]:
                                 "anexo_url": anexo_url_final
                             }
                             
-                            user_log_atual = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
-                            if atualizar_ocorrencia_db(ocor_id, dados_novos, user_log_atual):
+                            if atualizar_ocorrencia_db(ocor_id, dados_novos, USUARIO_PADRAO):
                                 st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
                                 st.rerun()
 
                 if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
-                    user_log_atual = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
-                    sucesso = deletar_ocorrencia_db(ocor_id, user_log_atual)
+                    sucesso = deletar_ocorrencia_db(ocor_id, USUARIO_PADRAO)
                     if sucesso:
                         st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
                         st.rerun()
 
 # ==========================================
-# ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
+# ABA 2: COPILOT IA
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Copilot IA")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente Inteligente de Diagnóstico (Copilot)")
-    st.markdown("Descreva o problema ou sintoma em **linguagem natural** (ex: *A catraca do cliente perdeu a conexão com o IP após a atualização*). O Copilot cruzará os dados da base de conhecimento instantaneamente para sugerir o procedimento ideal.")
+    st.markdown("Descreva o problema ou sintoma em **linguagem natural**. O Copilot cruzará os dados da base de conhecimento instantaneamente para sugerir o procedimento ideal.")
     
     if "copilot_messages" not in st.session_state:
         st.session_state.copilot_messages = [
@@ -948,7 +893,7 @@ with tabs[indice_copilot]:
                         "matches": match_dicts
                     })
                 else:
-                    resposta_texto = "Não encontrei nenhuma tratativa exata na base para este problema específico. Recomendo verificar com a equipe sênior ou cadastrar este novo caso após resolvê-lo na aba **Cadastrar Tratativa**."
+                    resposta_texto = "Não encontrei nenhuma tratativa exata na base para este problema específico."
                     st.markdown(resposta_texto)
                     st.session_state.copilot_messages.append({
                         "role": "assistant",
@@ -1086,7 +1031,6 @@ with tabs[indice_cad]:
             if in_prob and in_motivo and passos_novos_lista:
                 json_solucao = json.dumps(passos_novos_lista)
                 url_anexo_prob = upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
-                autor_reg = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
                 
                 dados = {
                     "sistema": in_sist,
@@ -1098,19 +1042,19 @@ with tabs[indice_cad]:
                     "nivel": in_nivel,
                     "anexo_url": url_anexo_prob
                 }
-                if salvar_ocorrencia_db(dados, autor_reg):
+                if salvar_ocorrencia_db(dados, USUARIO_PADRAO):
                     st.toast("Tratativa salva com sucesso!", icon="🎉")
                     st.rerun()
             else:
                 st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
 
 # ==========================================
-# ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT (ACESSO LIVRE)
+# ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
     st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-    st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico (ou apenas os filtrados).")
+    st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico.")
     
     st.markdown("### 📤 Importar Ocorrências em Lote")
     with st.form("form_import_txt"):
@@ -1118,8 +1062,7 @@ with tabs[indice_export]:
         submitted_import = st.form_submit_button("🚀 Processar e Importar Ocorrências")
         if submitted_import:
             if arquivo_txt is not None:
-                user_log_atual = st.session_state.user.email if st.session_state.user else "visitante@actuar.group"
-                qtd = processar_importacao_txt(arquivo_txt.getvalue(), user_log_atual)
+                qtd = processar_importacao_txt(arquivo_txt.getvalue(), USUARIO_PADRAO)
                 if qtd > 0:
                     st.success(f"{qtd} ocorrências foram importadas com sucesso!")
                     time.sleep(1)
@@ -1162,7 +1105,7 @@ with tabs[indice_export]:
         )
 
 # ==========================================
-# ABA 7: AUDIT LOG (ACESSO LIVRE)
+# ABA 7: AUDIT LOG
 # ==========================================
 indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
 with tabs[indice_audit]:
@@ -1171,7 +1114,7 @@ with tabs[indice_audit]:
     
     try:
         res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-        df_logs = pd.DataFrame(res_logs.data)
+        df_logs = pd.DataFrame(res_logs.data) if res_logs.data else pd.DataFrame()
         if not df_logs.empty:
             st.dataframe(
                 df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
