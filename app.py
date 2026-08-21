@@ -464,12 +464,13 @@ def upload_multiplos_arquivos(files):
 
 
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (MELHORADO & CONTEXTUAL)
 # ==========================================
 def buscar_melhor_solucao_copilot(query, df):
   if df.empty or not query:
     return []
 
+  query_lower = query.lower().strip()
   stopwords = {
       "a",
       "o",
@@ -513,14 +514,12 @@ def buscar_melhor_solucao_copilot(query, df):
       "aos",
       "também",
   }
+
   palavras_query = [
       p.lower()
-      for p in re.findall(r"\w+", query)
+      for p in re.findall(r"\w+", query_lower)
       if p.lower() not in stopwords and len(p) > 2
   ]
-
-  if not palavras_query:
-    return []
 
   resultados = []
   for _, row in df.iterrows():
@@ -531,20 +530,24 @@ def buscar_melhor_solucao_copilot(query, df):
     ).lower()
     score = 0
 
+    # 1. Bônus pesado para correspondência da frase exata digitada
+    if query_lower in texto_base:
+      score += 30
+
+    # 2. Relevância inteligente para frases-chave comuns (ex: "não identificado")
+    if "não identificado" in query_lower and "não identificado" in texto_base:
+      score += 40
+
+    # 3. Análise de proximidade e pontuação por termos individuais relevantes
     for p in palavras_query:
       if p in texto_base:
         if (
             p in str(row.get("problema", "")).lower()
             or p in str(row.get("equipamento", "")).lower()
         ):
-          score += 3
+          score += 4
         else:
-          score += 1
-      else:
-        for palavra_texto in re.findall(r"\w+", texto_base):
-          if len(p) >= 4 and (p in palavra_texto or palavra_texto in p):
-            score += 1.5
-            break
+          score += 2
 
     if score > 0:
       resultados.append((score, row))
@@ -564,10 +567,7 @@ with st.sidebar:
     st.image("logo_dark.png", width=70)
   elif os.path.exists("logo.png"):
     st.image("logo.png", width=70)
-
   st.markdown("---")
-  st.markdown("### 🔓 Modo Sem Restrições")
-  st.info("Todos os usuários possuem permissões totais em todas as funções.")
 
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
@@ -616,10 +616,7 @@ with col_header_left:
     )
 
 with col_header_right:
-  st.markdown(
-      "🔓 **Acesso Total Liberado**<br>Sem restrições de perfil",
-      unsafe_allow_html=True,
-  )
+  st.markdown("")
 
 st.markdown("---")
 
@@ -643,7 +640,7 @@ for col in [
   if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
     df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS (TODAS VISÍVEIS PARA TODOS)
+# CRIAÇÃO DAS ABAS
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Copilot IA",
@@ -958,7 +955,6 @@ with tabs[indice_diag]:
               st.toast("Anotação adicionada!", icon="💬")
               st.rerun()
 
-        # ÁREA DE EDIÇÃO E EXCLUSÃO LIBERADA PARA TODOS
         st.markdown("---")
         with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
           with st.form(key=f"form_edit_{ocor_id}"):
