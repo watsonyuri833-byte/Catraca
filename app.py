@@ -5,6 +5,7 @@ from supabase import create_client, Client
 import os
 import time
 import json
+import re
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
@@ -605,11 +606,14 @@ with tabs[0]:
         if f_hw != "Todos":
             df_filtered = df_filtered[df_filtered["equipamento"] == f_hw]
         if f_busca:
-            df_filtered = df_filtered[
-                df_filtered["problema"].astype(str).str.contains(f_busca, case=False, na=False) |
-                df_filtered["motivo"].astype(str).str.contains(f_busca, case=False, na=False) |
-                df_filtered["solucao"].astype(str).str.contains(f_busca, case=False, na=False)
-            ]
+            palavras = [p.strip() for p in f_busca.split() if p.strip()]
+            if palavras:
+                regex_pattern = '|'.join([re.escape(p) for p in palavras])
+                df_filtered = df_filtered[
+                    df_filtered["problema"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True) |
+                    df_filtered["motivo"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True) |
+                    df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
+                ]
 
     if df_filtered.empty:
         st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
@@ -636,7 +640,6 @@ with tabs[0]:
             selection_mode="single-row"
         )
         
-        # Identifica se o usuário clicou em alguma linha da tabela de forma segura
         ocor_id_selecionado = None
         selected_rows = []
         if isinstance(evento_tabela, dict) and "selection" in evento_tabela:
