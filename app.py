@@ -405,9 +405,6 @@ def extrair_primeiro_nome(email):
     return nome_base.capitalize()
 
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
-# ==========================================
-# ==========================================
 # ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (ATUALIZADO)
 # ==========================================
 def buscar_melhor_solucao_copilot(query, df):
@@ -445,6 +442,7 @@ def buscar_melhor_solucao_copilot(query, df):
             
     resultados.sort(key=lambda x: x[0], reverse=True)
     return [r[1] for r in resultados[:3]]
+
 # ==========================================
 # 3. CONTROLE DE SESSÃO E LOGIN
 # ==========================================
