@@ -505,8 +505,8 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS
-abas_navegacao = ["📋 Diagnósticos", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
+# CRIAÇÃO DAS ABAS (COM A ABA "MODO TV" ADICIONADA)[cite: 2]
+abas_navegacao = ["📋 Diagnósticos", "📺 Modo TV", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Importar & Exportar (TXT)")
     abas_navegacao.append("📜 Audit Log (Gestão)")
@@ -580,7 +580,8 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
 # ==========================================
 # ABA 1: CONSULTA COM TABELA INTERATIVA (SELEÇÃO POR CLIQUE)
 # ==========================================
-with tabs[0]:
+indice_diag = abas_navegacao.index("📋 Diagnósticos")
+with tabs[indice_diag]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
     col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
     
@@ -621,10 +622,8 @@ with tabs[0]:
         st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
         st.caption("💡 **Como usar:** Digite acima para refinar a busca e **clique diretamente na linha** da tabela abaixo para carregar os detalhes completos.")
         
-        # Removido o ID da exibição na tabela
         df_display = df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]].copy().reset_index(drop=True)
         
-        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
         evento_tabela = st.dataframe(
             df_display,
             column_config={
@@ -873,9 +872,55 @@ with tabs[0]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: MEUS FAVORITOS
+# ABA 2: MODO TV (PAINEL DE MONITORAMENTO)[cite: 2]
 # ==========================================
-with tabs[1]:
+indice_tv = abas_navegacao.index("📺 Modo TV")
+with tabs[indice_tv]:
+    st.subheader("📺 Painel TV - Monitoramento em Tempo Real")
+    st.caption("Visão executiva simplificada para exibição em monitores e TVs de suporte.")
+    
+    if df_ocorrencias.empty:
+        st.info("Nenhuma ocorrência registrada para exibir no Modo TV.")
+    else:
+        total_ocorr = len(df_ocorrencias)
+        total_definitiva = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Definitiva", case=False, na=False)])
+        total_contorno = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Contorno", case=False, na=False)])
+        total_bug = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Bug", case=False, na=False)])
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total de Ocorrências", total_ocorr)
+        m2.metric("Soluções Definitivas", total_definitiva)
+        m3.metric("Contornos / Paliativos", total_contorno)
+        m4.metric("Bugs / Em Análise", total_bug)
+        
+        st.markdown("---")
+        st.markdown("### 📋 Últimas Ocorrências Registradas")
+        
+        df_tv = df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]].head(12).reset_index(drop=True)
+        st.dataframe(
+            df_tv,
+            column_config={
+                "sistema": "Sistema",
+                "equipamento": "Hardware",
+                "problema": "Problema (Sintoma)",
+                "status": "Status",
+                "nivel": "Nível"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        st.markdown("---")
+        auto_refresh = st.checkbox("🔄 Ativar atualização automática (a cada 60 segundos)", value=False, key="tv_auto_refresh")
+        if auto_refresh:
+            time.sleep(60)
+            st.rerun()
+
+# ==========================================
+# ABA 3: MEUS FAVORITOS
+# ==========================================
+indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
+with tabs[indice_fav]:
     st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
     st.caption("Acesse rapidamente os problemas que você mais resolve.")
     
@@ -912,7 +957,7 @@ with tabs[1]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 3: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
+# ABA 4: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -975,7 +1020,7 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
 
 # ==========================================
-# ABA 4: IMPORTAR & EXPORTAR BANCO EM TXT
+# ABA 5: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in abas_navegacao:
     indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
@@ -1020,7 +1065,7 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
             )
 
 # ==========================================
-# ABA 5: AUDIT LOG
+# ABA 6: AUDIT LOG
 # ==========================================
 if st.session_state.user_role == "Admin" and "📜 Audit Log (Gestão)" in abas_navegacao:
     indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
