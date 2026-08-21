@@ -215,13 +215,12 @@ def processar_importacao_txt(file_bytes, usuario_email):
                 
                 dados = {
                     "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
-                    "equipamento": "Outro Hardware",
+                    "equipamento": "Indiferente",
                     "problema": problema,
                     "motivo": motivo_final,
                     "solucao": json.dumps(passos_padrao),
                     "status": "🟢 Solução Definitiva",
                     "nivel": "N1 - Fácil / Rápido",
-                    "tempo_estimado": "15 minutos",
                     "anexo_url": None
                 }
                 
@@ -466,12 +465,12 @@ with st.sidebar:
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Não se aplica / Geral", "Outro Sistema", "Só Sistema"]
+LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Edizz", "AcDesk", "Não se aplica / Geral", "Outro Sistema", "Indiferente"]
 LISTA_HARDWARE = [
     "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
     "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
     "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Só Catraca"
+    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Indiferente"
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
@@ -501,7 +500,7 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url"]:
+for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
@@ -620,7 +619,7 @@ with tabs[0]:
         
         df_display = df_filtered[["id", "sistema", "equipamento", "problema", "status", "nivel"]].copy()
         
-        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA (CORRIGIDO PARA on_select)
+        # TABELA INTERATIVA COM SELEÇÃO POR CLIQUE DIRETO NA LINHA
         evento_tabela = st.dataframe(
             df_display,
             column_config={
@@ -657,7 +656,6 @@ with tabs[0]:
             prob = row.get('problema', 'Sem descrição')
             status = row.get('status', '🟢 Solução Definitiva')
             nivel = row.get('nivel', 'N1')
-            tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             solucao_val = row.get('solucao', '')
             
@@ -680,11 +678,10 @@ with tabs[0]:
                             st.toast("Adicionado aos favoritos com sucesso!", icon="⭐")
                         st.rerun()
                 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
-                c4.markdown(f"**📌 Status:** {status}")
+                c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
@@ -749,17 +746,13 @@ with tabs[0]:
                             lista_niveis = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
                             idx_nivel = [i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])]
                             idx_nivel = idx_nivel[0] if idx_nivel else 0
-                            
-                            lista_tempos = ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"]
-                            idx_tempo = lista_tempos.index(tempo) if tempo in lista_tempos else 0
 
                             with edit_col1:
                                 edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
                                 edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
-                                edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
                             with edit_col2:
                                 edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
-                                edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
+                                edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
 
                             edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
                             
@@ -862,7 +855,6 @@ with tabs[0]:
                                     "solucao": json_solucao_final,
                                     "status": edit_status,
                                     "nivel": edit_nivel,
-                                    "tempo_estimado": edit_tempo,
                                     "anexo_url": anexo_url_final
                                 }
                                 
@@ -895,7 +887,6 @@ with tabs[1]:
             prob = row.get('problema', 'Sem descrição')
             status = row.get('status', '🟢 Solução Definitiva')
             nivel = row.get('nivel', 'N1')
-            tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             solucao_val = row.get('solucao', '')
             
@@ -907,11 +898,10 @@ with tabs[1]:
                     st.toast("Removido dos favoritos!", icon="🗑️")
                     st.rerun()
                 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**💻 Sistema:** {sist}")
                 c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**⏱️ Tempo:** {nivel} ({tempo})")
-                c4.markdown(f"**📌 Registro:** OK")
+                c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
                 
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
@@ -928,10 +918,9 @@ with tabs[indice_cad]:
         with col_c1:
             in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
             in_status = st.selectbox("📌 Status da Tratativa:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
-            in_nivel = st.selectbox("📊 Nível de Complexidade:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
         with col_c2:
             in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
-            in_tempo = st.selectbox("⏱️ Tempo Médio de Resolução:", ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"])
+            in_nivel = st.selectbox("📊 Nível de Complexidade:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
 
         in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
         in_files_prob = st.file_uploader("📎 Imagens ou Arquivos do Problema (Sintoma):", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key="cad_prob_files")
@@ -973,7 +962,6 @@ with tabs[indice_cad]:
                     "solucao": json_solucao,
                     "status": in_status,
                     "nivel": in_nivel,
-                    "tempo_estimado": in_tempo,
                     "anexo_url": url_anexo_prob
                 }
                 if salvar_ocorrencia_db(dados, autor_reg):
