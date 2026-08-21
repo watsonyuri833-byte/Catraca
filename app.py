@@ -619,9 +619,11 @@ with col_header_right:
 
 st.markdown("---")
 
+# CARREGAMENTO COM TRATAMENTO DE ERRO EXPLICITADO
 try:
   df_ocorrencias = buscar_ocorrencias_db()
-except Exception:
+except Exception as e:
+  st.error(f"⚠️ Erro ao carregar ocorrências do Supabase: {e}")
   df_ocorrencias = pd.DataFrame()
 
 for col in [
