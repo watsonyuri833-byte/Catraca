@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-import streamlit as st
-import pandas as pd
-from supabase import create_client, Client
-import os
-import time
 import json
+import os
 import re
+import time
+import pandas as pd
+import streamlit as st
+from supabase import Client, create_client
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM (MODERNO DARK DEFINITIVO)
@@ -13,10 +13,11 @@ import re
 st.set_page_config(
     page_title="actuar.group - Engineering Hub",
     page_icon="favicon.png",
-    layout="wide"
+    layout="wide",
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* Fundo Principal em Gradiente Escuro */
     .stApp { 
@@ -126,1006 +127,1687 @@ st.markdown("""
         border-top: 2px solid #58a6ff !important;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ==========================================
-# 2. CONEXÃO E BANCO DE DADOS
+# 2. CONEXÃO E BANCO DE DADOS (COM SUPORTE A FALLBACK)
 # ==========================================
+default_url = st.secrets.get("SUPABASE_URL", "")
+default_key = st.secrets.get("SUPABASE_KEY", "")
+
+if "override_url" not in st.session_state:
+  st.session_state.override_url = default_url
+if "override_key" not in st.session_state:
+  st.session_state.override_key = default_key
+
+
 @st.cache_resource
-def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+def init_supabase(url: str, key: str) -> Client:
+  return create_client(url, key)
 
-supabase = init_supabase()
+
+try:
+  supabase = init_supabase(
+      st.session_state.override_url, st.session_state.override_key
+  )
+except Exception as e:
+  supabase = None
+
 
 def buscar_ocorrencias_db():
-    res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
-    return pd.DataFrame(res.data)
+  if not supabase:
+    return pd.DataFrame()
+  res = (
+      supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
+  )
+  return pd.DataFrame(res.data)
+
 
 def registrar_log(usuario_email, acao, detalhes):
-    try:
-        supabase.table("audit_logs").insert({
-            "usuario_email": usuario_email,
-            "acao": acao,
-            "detalhes": detalhes
-        }).execute()
-    except Exception as e:
-        print(f"Erro ao registrar log: {e}")
+  if not supabase:
+    return
+  try:
+    supabase.table("audit_logs").insert({
+        "usuario_email": usuario_email,
+        "acao": acao,
+        "detalhes": detalhes,
+    }).execute()
+  except Exception as e:
+    print(f"Erro ao registrar log: {e}")
+
 
 def limpar_dados_para_json(dados):
-    return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
+  return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
+
 
 def salvar_ocorrencia_db(dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "CRIOU", f"Cadastrou a ocorrência: {dados.get('problema')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar no Supabase: {e}")
-        return False
+  try:
+    dados_limpos = limpar_dados_para_json(dados)
+    supabase.table("ocorrencias").insert(dados_limpos).execute()
+    registrar_log(
+        usuario_email,
+        "CRIOU",
+        f"Cadastrou a ocorrência: {dados.get('problema')}",
+    )
+    return True
+  except Exception as e:
+    st.error(f"Erro ao salvar no Supabase: {e}")
+    return False
+
 
 def processar_importacao_txt(file_bytes, usuario_email):
+  try:
     try:
-        try:
-            texto = file_bytes.decode("utf-8")
-        except Exception:
-            texto = file_bytes.decode("latin-1")
-            
-        blocos = texto.split("Erro:")
-        importadas = 0
-        
-        for bloco in blocos:
-            if not bloco.strip():
-                continue
-            
-            linhas = bloco.strip().split("\n")
-            problema = linhas[0].strip()
-            
-            sistema = "Não se aplica / Geral"
-            motivo_partes = []
-            solucao_texto = ""
-            
-            for linha in linhas[1:]:
-                l = linha.strip()
-                if not l:
-                    continue
-                
-                if l.startswith("Sistema:"):
-                    l_lower = l.lower()
-                    if "[x] ambos" in l_lower:
-                        sistema = "Outro Sistema"
-                    elif "[x] legado" in l_lower:
-                        sistema = "Legado(Acesso)"
-                    elif "[x] the new" in l_lower or "[x] edge" in l_lower:
-                        sistema = "The new(Edge)"
-                elif l.startswith("Onde ocorre:") or l.startswith("Como ocorre:") or l.startswith("Causa"):
-                    motivo_partes.append(l)
-                elif l.startswith("Solução:"):
-                    s_limpa = l.replace("Solução:", "").strip()
-                    if s_limpa.startswith("[") and s_limpa.endswith("]"):
-                        s_limpa = s_limpa[1:-1].strip()
-                    solucao_texto = s_limpa
-                elif not l.startswith("Possíveis Causas"):
-                    motivo_partes.append(l)
-                    
-            if problema:
-                motivo_final = " | ".join(motivo_partes) if motivo_partes else "Não informado"
-                passos_padrao = [{"passo": 1, "texto": solucao_texto if solucao_texto else "Não informada", "anexo": None}]
-                
-                dados = {
-                    "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
-                    "equipamento": "Indiferente",
-                    "problema": problema,
-                    "motivo": motivo_final,
-                    "solucao": json.dumps(passos_padrao),
-                    "status": "🟢 Solução Definitiva",
-                    "nivel": "N1 - Fácil / Rápido",
-                    "anexo_url": None
-                }
-                
-                dados_limpos = limpar_dados_para_json(dados)
-                supabase.table("ocorrencias").insert(dados_limpos).execute()
-                importadas += 1
-                
-        if importadas > 0:
-            registrar_log(usuario_email, "IMPORTOU", f"Importou {importadas} ocorrências via arquivo TXT.")
-        return importadas
-    except Exception as e:
-        st.error(f"Erro ao processar importação do arquivo TXT: {e}")
-        return 0
+      texto = file_bytes.decode("utf-8")
+    except Exception:
+      texto = file_bytes.decode("latin-1")
+
+    blocos = texto.split("Erro:")
+    importadas = 0
+
+    for bloco in blocos:
+      if not bloco.strip():
+        continue
+
+      linhas = bloco.strip().split("\n")
+      problema = linhas[0].strip()
+
+      sistema = "Não se aplica / Geral"
+      motivo_partes = []
+      solucao_texto = ""
+
+      for linha in linhas[1:]:
+        l = linha.strip()
+        if not l:
+          continue
+
+        if l.startswith("Sistema:"):
+          l_lower = l.lower()
+          if "[x] ambos" in l_lower:
+            sistema = "Outro Sistema"
+          elif "[x] legado" in l_lower:
+            sistema = "Legado(Acesso)"
+          elif "[x] the new" in l_lower or "[x] edge" in l_lower:
+            sistema = "The new(Edge)"
+        elif (
+            l.startswith("Onde ocorre:")
+            or l.startswith("Como ocorre:")
+            or l.startswith("Causa")
+        ):
+          motivo_partes.append(l)
+        elif l.startswith("Solução:"):
+          s_limpa = l.replace("Solução:", "").strip()
+          if s_limpa.startswith("[") and s_limpa.endswith("]"):
+            s_limpa = s_limpa[1:-1].strip()
+          solucao_texto = s_limpa
+        elif not l.startswith("Possíveis Causas"):
+          motivo_partes.append(l)
+
+      if problema:
+        motivo_final = (
+            " | ".join(motivo_partes) if motivo_partes else "Não informado"
+        )
+        passos_padrao = [{
+            "passo": 1,
+            "texto": solucao_texto if solucao_texto else "Não informada",
+            "anexo": None,
+        }]
+
+        dados = {
+            "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
+            "equipamento": "Indiferente",
+            "problema": problema,
+            "motivo": motivo_final,
+            "solucao": json.dumps(passos_padrao),
+            "status": "🟢 Solução Definitiva",
+            "nivel": "N1 - Fácil / Rápido",
+            "anexo_url": None,
+        }
+
+        dados_limpos = limpar_dados_para_json(dados)
+        supabase.table("ocorrencias").insert(dados_limpos).execute()
+        importadas += 1
+
+    if importadas > 0:
+      registrar_log(
+          usuario_email,
+          "IMPORTOU",
+          f"Importou {importadas} ocorrências via arquivo TXT.",
+      )
+    return importadas
+  except Exception as e:
+    st.error(f"Erro ao processar importação do arquivo TXT: {e}")
+    return 0
+
 
 def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
-    try:
-        dados_atualizados.pop("origem", None)
-        dados_limpos = limpar_dados_para_json(dados_atualizados)
-        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
-        registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao atualizar registro: {e}")
-        return False
+  try:
+    dados_atualizados.pop("origem", None)
+    dados_limpos = limpar_dados_para_json(dados_atualizados)
+    supabase.table("ocorrencias").update(dados_limpos).eq(
+        "id", ocorrencia_id
+    ).execute()
+    registrar_log(
+        usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}"
+    )
+    return True
+  except Exception as e:
+    st.error(f"Erro ao atualizar registro: {e}")
+    return False
+
 
 def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
-    try:
-        supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-        
-        if res.data and len(res.data) > 0:
-            registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
-            return True
-        else:
-            st.error("O banco bloqueou a exclusão. Verifique se o RLS está liberado no Supabase.")
-            return False
-    except Exception as e:
-        st.error(f"Erro ao excluir no Supabase: {e}")
-        return False
+  try:
+    supabase.table("comentarios").delete().eq(
+        "ocorrencia_id", ocorrencia_id
+    ).execute()
+    res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
+
+    if res.data and len(res.data) > 0:
+      registrar_log(
+          usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}"
+      )
+      return True
+    else:
+      st.error(
+          "O banco bloqueou a exclusão. Verifique se o RLS está liberado no"
+          " Supabase."
+      )
+      return False
+  except Exception as e:
+    st.error(f"Erro ao excluir no Supabase: {e}")
+    return False
+
 
 def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
-    try:
-        res_comentarios = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).eq("usuario", usuario_email).execute()
-        comentarios_usuario = res_comentarios.data if res_comentarios.data else []
-        
-        voto_anterior = None
-        comentario_voto_id = None
-        for c in comentarios_usuario:
-            if c["comentario"] == "[VOTO_POS]":
-                voto_anterior = "pos"
-                comentario_voto_id = c["id"]
-                break
-            elif c["comentario"] == "[VOTO_NEG]":
-                voto_anterior = "neg"
-                comentario_voto_id = c["id"]
-                break
-                
-        res_ocor = supabase.table("ocorrencias").select("votos_pos, votos_neg").eq("id", ocorrencia_id).execute()
-        if not res_ocor.data:
-            return
-        v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
-        v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
-        
-        if voto_anterior is None:
-            supabase.table("comentarios").insert({
-                "ocorrencia_id": ocorrencia_id,
-                "usuario": usuario_email,
-                "comentario": f"[VOTO_{tipo_voto.upper()}]"
-            }).execute()
-            if tipo_voto == "pos":
-                v_pos += 1
-            else:
-                v_neg += 1
-        elif voto_anterior == tipo_voto:
-            if comentario_voto_id:
-                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
-            if tipo_voto == "pos":
-                v_pos = max(0, v_pos - 1)
-            else:
-                v_neg = max(0, v_neg - 1)
-        else:
-            if comentario_voto_id:
-                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
-            supabase.table("comentarios").insert({
-                "ocorrencia_id": ocorrencia_id,
-                "usuario": usuario_email,
-                "comentario": f"[VOTO_{tipo_voto.upper()}]"
-            }).execute()
-            if tipo_voto == "pos":
-                v_pos += 1
-                v_neg = max(0, v_neg - 1)
-            else:
-                v_neg += 1
-                v_pos = max(0, v_pos - 1)
-                
-        supabase.table("ocorrencias").update({"votos_pos": v_pos, "votos_neg": v_neg}).eq("id", ocorrencia_id).execute()
-    except Exception as e:
-        st.error(f"Erro ao gerenciar voto: {e}")
+  try:
+    res_comentarios = (
+        supabase.table("comentarios")
+        .select("*")
+        .eq("ocorrencia_id", ocorrencia_id)
+        .eq("usuario", usuario_email)
+        .execute()
+    )
+    comentarios_usuario = res_comentarios.data if res_comentarios.data else []
+
+    voto_anterior = None
+    comentario_voto_id = None
+    for c in comentarios_usuario:
+      if c["comentario"] == "[VOTO_POS]":
+        voto_anterior = "pos"
+        comentario_voto_id = c["id"]
+        break
+      elif c["comentario"] == "[VOTO_NEG]":
+        voto_anterior = "neg"
+        comentario_voto_id = c["id"]
+        break
+
+    res_ocor = (
+        supabase.table("ocorrencias")
+        .select("votos_pos, votos_neg")
+        .eq("id", ocorrencia_id)
+        .execute()
+    )
+    if not res_ocor.data:
+      return
+    v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
+    v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
+
+    if voto_anterior is None:
+      supabase.table("comentarios").insert({
+          "ocorrencia_id": ocorrencia_id,
+          "usuario": usuario_email,
+          "comentario": f"[VOTO_{tipo_voto.upper()}]",
+      }).execute()
+      if tipo_voto == "pos":
+        v_pos += 1
+      else:
+        v_neg += 1
+    elif voto_anterior == tipo_voto:
+      if comentario_voto_id:
+        supabase.table("comentarios").delete().eq(
+            "id", comentario_voto_id
+        ).execute()
+      if tipo_voto == "pos":
+        v_pos = max(0, v_pos - 1)
+      else:
+        v_neg = max(0, v_neg - 1)
+    else:
+      if comentario_voto_id:
+        supabase.table("comentarios").delete().eq(
+            "id", comentario_voto_id
+        ).execute()
+      supabase.table("comentarios").insert({
+          "ocorrencia_id": ocorrencia_id,
+          "usuario": usuario_email,
+          "comentario": f"[VOTO_{tipo_voto.upper()}]",
+      }).execute()
+      if tipo_voto == "pos":
+        v_pos += 1
+        v_neg = max(0, v_neg - 1)
+      else:
+        v_neg += 1
+        v_pos = max(0, v_pos - 1)
+
+    supabase.table("ocorrencias").update(
+        {"votos_pos": v_pos, "votos_neg": v_neg}
+    ).eq("id", ocorrencia_id).execute()
+  except Exception as e:
+    st.error(f"Erro ao gerenciar voto: {e}")
+
 
 def buscar_comentarios(ocorrencia_id):
-    res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
-    return res.data
+  res = (
+      supabase.table("comentarios")
+      .select("*")
+      .eq("ocorrencia_id", ocorrencia_id)
+      .order("id", desc=True)
+      .execute()
+  )
+  return res.data
+
 
 def salvar_comentario(ocorrencia_id, usuario, texto):
-    supabase.table("comentarios").insert({
-        "ocorrencia_id": ocorrencia_id,
-        "usuario": usuario,
-        "comentario": texto
-    }).execute()
+  supabase.table("comentarios").insert({
+      "ocorrencia_id": ocorrencia_id,
+      "usuario": usuario,
+      "comentario": texto,
+  }).execute()
+
 
 def upload_arquivo_unico(file):
-    if not file:
-        return None
+  if not file:
+    return None
+  try:
+    file_name = f"evidencia_{int(time.time())}_{file.name}"
+    file_bytes = file.getvalue()
+
     try:
-        file_name = f"evidencia_{int(time.time())}_{file.name}"
-        file_bytes = file.getvalue()
-        
-        try:
-            supabase.storage.from_("anexos_evidencias").upload(
-                path=file_name,
-                file=file_bytes,
-                file_options={"content-type": file.type}
-            )
-        except Exception:
-            pass
-            
-        url_res = supabase.storage.get_public_url("anexos_evidencias", file_name) if hasattr(supabase.storage, "get_public_url") else supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
-        
-        if isinstance(url_res, dict):
-            u = url_res.get("publicUrl") or url_res.get("public_url") or str(url_res)
-        else:
-            u = str(url_res) if url_res else None
-        return u
-    except Exception as e:
-        st.error(f"Erro no upload do arquivo {file.name}: {e}")
-        return None
+      supabase.storage.from_("anexos_evidencias").upload(
+          path=file_name, file=file_bytes, file_options={"content-type": file.type}
+      )
+    except Exception:
+      pass
+
+    url_res = (
+        supabase.storage.get_public_url("anexos_evidencias", file_name)
+        if hasattr(supabase.storage, "get_public_url")
+        else supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
+    )
+
+    if isinstance(url_res, dict):
+      u = (
+          url_res.get("publicUrl")
+          or url_res.get("public_url")
+          or str(url_res)
+      )
+    else:
+      u = str(url_res) if url_res else None
+    return u
+  except Exception as e:
+    st.error(f"Erro no upload do arquivo {file.name}: {e}")
+    return None
+
 
 def upload_multiplos_arquivos(files):
-    if not files:
-        return None
-    urls = []
-    for f in files:
-        u = upload_arquivo_unico(f)
-        if u:
-            urls.append(u)
-    urls = list(dict.fromkeys(urls))
-    return ",".join(urls) if urls else None
+  if not files:
+    return None
+  urls = []
+  for f in files:
+    u = upload_arquivo_unico(f)
+    if u:
+      urls.append(u)
+  urls = list(dict.fromkeys(urls))
+  return ",".join(urls) if urls else None
+
+
+EMAILS_GESTORES = ["watson@actuar.group"]
+
+
+def obter_perfil_usuario(user_id, email):
+  if email.lower() in [e.lower() for e in EMAILS_GESTORES]:
+    role_atribuida = "Admin"
+  else:
+    role_atribuida = "Analista"
+
+  try:
+    res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
+    if res.data:
+      if (
+          res.data[0]["role"] != role_atribuida
+          and role_atribuida == "Admin"
+      ):
+        supabase.table("perfis").update({"role": "Admin"}).eq(
+            "user_id", user_id
+        ).execute()
+      return role_atribuida
+  except Exception:
+    pass
+
+  try:
+    supabase.table("perfis").insert({
+        "user_id": user_id,
+        "email": email,
+        "role": role_atribuida,
+    }).execute()
+  except Exception:
+    pass
+
+  return role_atribuida
+
+
+def extrair_primeiro_nome(email):
+  if not email or "@" not in email:
+    return "Visitante"
+  nome_base = email.split("@")[0].split(".")[0]
+  return nome_base.capitalize()
+
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E INICIALIZAÇÃO (LIVRE)
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT
 # ==========================================
+def buscar_melhor_solucao_copilot(query, df):
+  if df.empty or not query:
+    return []
+
+  stopwords = {
+      "a",
+      "o",
+      "de",
+      "do",
+      "da",
+      "em",
+      "um",
+      "uma",
+      "para",
+      "com",
+      "que",
+      "os",
+      "as",
+      "dos",
+      "das",
+      "por",
+      "mais",
+      "como",
+      "mas",
+      "foi",
+      "ao",
+      "ele",
+      "seu",
+      "sua",
+      "ou",
+      "quando",
+      "muito",
+      "nos",
+      "já",
+      "só",
+      "pelo",
+      "pela",
+      "até",
+      "isso",
+      "ela",
+      "entre",
+      "depois",
+      "sem",
+      "mesmo",
+      "aos",
+      "também",
+  }
+  palavras_query = [
+      p.lower()
+      for p in re.findall(r"\w+", query)
+      if p.lower() not in stopwords and len(p) > 2
+  ]
+
+  if not palavras_query:
+    return []
+
+  resultados = []
+  for _, row in df.iterrows():
+    texto_base = (
+        f"{row.get('problema', '')} {row.get('motivo', '')}"
+        f" {row.get('equipamento', '')} {row.get('sistema', '')}"
+        f" {row.get('solucao', '')}"
+    ).lower()
+    score = 0
+
+    for p in palavras_query:
+      if p in texto_base:
+        if (
+            p in str(row.get("problema", "")).lower()
+            or p in str(row.get("equipamento", "")).lower()
+        ):
+          score += 3
+        else:
+          score += 1
+      else:
+        for palavra_texto in re.findall(r"\w+", texto_base):
+          if len(p) >= 4 and (p in palavra_texto or palavra_texto in p):
+            score += 1.5
+            break
+
+    if score > 0:
+      resultados.append((score, row))
+
+  resultados.sort(key=lambda x: x[0], reverse=True)
+  return [r[1] for r in resultados[:3]]
+
+
+# ==========================================
+# 3. CONTROLE DE SESSÃO E LOGIN
+# ==========================================
+if "user" not in st.session_state:
+  try:
+    session = supabase.auth.get_session()
+    if session:
+      st.session_state.user = session.user
+      st.session_state.user_role = obter_perfil_usuario(
+          session.user.id, session.user.email
+      )
+    else:
+      st.session_state.user = None
+      st.session_state.user_role = "Visitante"
+  except Exception:
+    st.session_state.user = None
+    st.session_state.user_role = "Visitante"
+
 if "favoritos" not in st.session_state:
-    st.session_state.favoritos = []
+  st.session_state.favoritos = []
 
-DEFAULT_USER_EMAIL = "operador@actuar.group"
+
+def fazer_login(email, password):
+  try:
+    response = supabase.auth.sign_in_with_password(
+        {"email": email, "password": password}
+    )
+    st.session_state.user = response.user
+    st.session_state.user_role = obter_perfil_usuario(
+        response.user.id, response.user.email
+    )
+    st.session_state.favoritos = []
+    st.toast("Login realizado com sucesso!", icon="✅")
+    st.rerun()
+  except Exception as e:
+    st.error(f"Falha na autenticação: {e}")
+
+
+def fazer_logout():
+  try:
+    supabase.auth.sign_out()
+  except Exception:
+    pass
+  st.session_state.user = None
+  st.session_state.user_role = "Visitante"
+  st.session_state.favoritos = []
+  st.rerun()
+
 
 with st.sidebar:
-    if os.path.exists("logo_dark.png"):
-        st.image("logo_dark.png", width=70)
-    elif os.path.exists("logo.png"):
-        st.image("logo.png", width=70)
-        
-    st.markdown("### 🚀 Plataforma Integrada")
-    st.info("Acesso total liberado para todos os usuários. Sem restrições de administrador.")
+  if os.path.exists("logo_dark.png"):
+    st.image("logo_dark.png", width=70)
+  elif os.path.exists("logo.png"):
+    st.image("logo.png", width=70)
+
+  # Bloco de Fallback para Evitar Erro 401
+  st.markdown("### ⚙️ Configuração Supabase")
+  with st.expander("🔑 Ajustar Chaves (Anti-Erro 401)", expanded=False):
+    novo_url = st.text_input(
+        "Supabase URL", value=st.session_state.override_url
+    )
+    nova_key = st.text_input(
+        "Supabase Key (anon)",
+        value=st.session_state.override_key,
+        type="password",
+    )
+    if st.button("Atualizar Conexão"):
+      st.session_state.override_url = novo_url
+      st.session_state.override_key = nova_key
+      st.cache_resource.clear()
+      st.rerun()
+
+  st.markdown("---")
+  st.markdown("### 🔐 Área Administrativa")
+
+  if st.session_state.user is None:
+    st.info(
+        "Acesso público liberado. Faça login abaixo apenas se for Administrador."
+    )
+    with st.form("login_sidebar_form"):
+      email_input = st.text_input("E-mail:")
+      password_input = st.text_input("Senha:", type="password")
+      if st.form_submit_button("Entrar como Admin"):
+        if email_input and password_input:
+          fazer_login(email_input, password_input)
+        else:
+          st.warning("Preencha e-mail e senha.")
+  else:
+    st.success(f"Logado como:\n**{st.session_state.user.email}**")
+    if st.button("Sair da Conta (Logout)"):
+      fazer_logout()
 
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
 # ==========================================
-LISTA_SISTEMA = ["Legado(Acesso)", "The new(Edge)", "Edizz", "AcDesk", "Não se aplica / Geral", "Outro Sistema", "Indiferente"]
+LISTA_SISTEMA = [
+    "Legado(Acesso)",
+    "The new(Edge)",
+    "Edizz",
+    "AcDesk",
+    "Não se aplica / Geral",
+    "Outro Sistema",
+    "Indiferente",
+]
 LISTA_HARDWARE = [
-    "Catraca litnet1", "Catraca litnet2", "Catraca litnet3", "Catraca Edge",
-    "Catraca Topdata", "Catraca Henry", "Catraca Tecnibra", "Catraca serial",
-    "Catraca control ID block", "Catraca control ID block Next", "Control ID",
-    "Control ID Max", "Webcam", "Facial EVO/Topdata", "Outro Hardware", "Indiferente"
+    "Catraca litnet1",
+    "Catraca litnet2",
+    "Catraca litnet3",
+    "Catraca Edge",
+    "Catraca Topdata",
+    "Catraca Henry",
+    "Catraca Tecnibra",
+    "Catraca serial",
+    "Catraca control ID block",
+    "Catraca control ID block Next",
+    "Control ID",
+    "Control ID Max",
+    "Webcam",
+    "Facial EVO/Topdata",
+    "Outro Hardware",
+    "Indiferente",
 ]
 
 col_header_left, col_header_right = st.columns([6, 4])
 
 with col_header_left:
-    col_img_logo, col_txt_logo = st.columns([1, 4])
-    with col_img_logo:
-        if os.path.exists("logo_dark.png"):
-            st.image("logo_dark.png", width=60)
-        elif os.path.exists("logo.png"):
-            st.image("logo.png", width=60)
-    with col_txt_logo:
-        st.markdown("<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>", unsafe_allow_html=True)
+  col_img_logo, col_txt_logo = st.columns([1, 4])
+  with col_img_logo:
+    if os.path.exists("logo_dark.png"):
+      st.image("logo_dark.png", width=60)
+    elif os.path.exists("logo.png"):
+      st.image("logo.png", width=60)
+  with col_txt_logo:
+    st.markdown(
+        "<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>",
+        unsafe_allow_html=True,
+    )
 
 with col_header_right:
-    st.markdown("👤 **Acesso Geral Unificado**<br>🛡️ **Permissões Totais Ativas**", unsafe_allow_html=True)
+  if st.session_state.user:
+    role_badge = f"🛡️ **{st.session_state.user_role}**"
+    primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
+    st.markdown(
+        f"👤 **{primeiro_nome_logado}**<br>{role_badge}", unsafe_allow_html=True
+    )
+  else:
+    st.markdown(
+        "🌐 **Modo Público (Visitante)**<br>Visualização livre sem restrições",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
 try:
-    df_ocorrencias = buscar_ocorrencias_db()
+  df_ocorrencias = buscar_ocorrencias_db()
 except Exception:
-    df_ocorrencias = pd.DataFrame()
+  df_ocorrencias = pd.DataFrame()
 
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]:
-    if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
-        df_ocorrencias[col] = None
+for col in [
+    "sistema",
+    "equipamento",
+    "problema",
+    "motivo",
+    "solucao",
+    "status",
+    "nivel",
+    "votos_pos",
+    "votos_neg",
+    "anexo_url",
+]:
+  if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
+    df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS (TODAS LIBERADAS PARA TODOS)
+# CRIAÇÃO DAS ABAS
 abas_navegacao = [
-    "📋 Diagnósticos", 
-    "🤖 Copilot IA", 
-    "📺 Modo TV", 
-    "⭐ Meus Favoritos", 
+    "📋 Diagnósticos",
+    "🤖 Copilot IA",
+    "📺 Modo TV",
+    "⭐ Meus Favoritos",
     "➕ Cadastrar Tratativa",
-    "📥 Importar & Exportar (TXT)",
-    "📜 Audit Log (Gestão)"
 ]
+if st.session_state.user_role == "Admin":
+  abas_navegacao.append("📥 Importar & Exportar (TXT)")
+  abas_navegacao.append("📜 Audit Log (Gestão)")
 
 tabs = st.tabs(abas_navegacao)
 
+
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
-        urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
-        urls_problema = list(dict.fromkeys(urls_problema))
-        
-        if urls_problema:
-            with st.expander(f"📎 Ver Evidências do Problema (Sintoma) — {len(urls_problema)} arquivo(s)", expanded=False):
-                for idx_prob, url_file in enumerate(urls_problema):
-                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                    if "_" in nome_arquivo:
-                        partes_nome = nome_arquivo.split("_", 2)
-                        nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-                    else:
-                        nome_exibicao = nome_arquivo
-                        
-                    extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                    if url_file.lower().endswith(extensoes_imagem):
-                        try:
-                            st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
-                        except Exception:
-                            st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-                    else:
-                        st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-        st.markdown("---")
+  if (
+      anexo_global
+      and pd.notna(anexo_global)
+      and str(anexo_global).strip() != ""
+  ):
+    urls_problema = [
+        u.strip() for u in str(anexo_global).split(",") if u.strip()
+    ]
+    urls_problema = list(dict.fromkeys(urls_problema))
 
+    if urls_problema:
+      with st.expander(
+          f"📎 Ver Evidências do Problema (Sintoma) — {len(urls_problema)}"
+          " arquivo(s)",
+          expanded=False,
+      ):
+        for idx_prob, url_file in enumerate(urls_problema):
+          nome_arquivo = url_file.split("/")[-1].split("?")[0]
+          if "_" in nome_arquivo:
+            partes_nome = nome_arquivo.split("_", 2)
+            nome_exibicao = (
+                partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+            )
+          else:
+            nome_exibicao = nome_arquivo
+
+          extensoes_imagem = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+          if url_file.lower().endswith(extensoes_imagem):
+            try:
+              st.image(
+                  url_file,
+                  width=450,
+                  caption=f"Imagem {idx_prob + 1}: {nome_exibicao}",
+              )
+            except Exception:
+              st.markdown(
+                  f"📥 Baixar Arquivo {idx_prob + 1}:"
+                  f" [**{nome_exibicao}**]({url_file})"
+              )
+          else:
+            st.markdown(
+                f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})"
+            )
+    st.markdown("---")
+
+  passos = []
+  try:
+    if solucao_data and str(solucao_data).strip().startswith("["):
+      passos = json.loads(str(solucao_data))
+  except Exception:
     passos = []
-    try:
-        if solucao_data and str(solucao_data).strip().startswith("["):
-            passos = json.loads(str(solucao_data))
-    except Exception:
-        passos = []
 
-    if passos and isinstance(passos, list):
-        st.markdown("**Solução Recomendada em Etapas:**")
-        for idx, item in enumerate(passos):
-            num_passo = item.get("passo", idx + 1)
-            texto_passo = item.get("texto", "")
-            url_passo = item.get("anexo", None)
-            
-            st.markdown(f"**{num_passo}º** {texto_passo}")
-            
-            if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
-                urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
-                urls_passo = list(dict.fromkeys(urls_passo))
-                
-                if urls_passo:
-                    with st.expander(f"📷 Ver Anexos do Passo {num_passo} — {len(urls_passo)} arquivo(s)", expanded=False):
-                        for idx_f, url_file in enumerate(urls_passo):
-                            nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                            if "_" in nome_arquivo:
-                                partes_nome = nome_arquivo.split("_", 2)
-                                nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-                            else:
-                                nome_exibicao = nome_arquivo
-                                
-                            extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                            if url_file.lower().endswith(extensoes_imagem):
-                                try:
-                                    st.image(url_file, width=450, caption=f"Evidência {idx_f + 1} - Passo {num_passo}: {nome_exibicao}")
-                                except Exception:
-                                    st.markdown(f"📥 Baixar Arquivo {idx_f + 1}: [**{nome_exibicao}**]({url_file})")
-                            else:
-                                st.markdown(f"📄 Arquivo {idx_f + 1}: [**{nome_exibicao}**]({url_file})")
-            st.markdown("")
-    else:
-        st.success(f"**Solução Recomendada:**\n{solucao_data}")
+  if passos and isinstance(passos, list):
+    st.markdown("**Solução Recomendada em Etapas:**")
+    for idx, item in enumerate(passos):
+      num_passo = item.get("passo", idx + 1)
+      texto_passo = item.get("texto", "")
+      url_passo = item.get("anexo", None)
+
+      st.markdown(f"**{num_passo}º** {texto_passo}")
+
+      if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
+        urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
+        urls_passo = list(dict.fromkeys(urls_passo))
+
+        if urls_passo:
+          with st.expander(
+              f"📷 Ver Anexos do Passo {num_passo} — {len(urls_passo)}"
+              " arquivo(s)",
+              expanded=False,
+          ):
+            for idx_f, url_file in enumerate(urls_passo):
+              nome_arquivo = url_file.split("/")[-1].split("?")[0]
+              if "_" in nome_arquivo:
+                partes_nome = nome_arquivo.split("_", 2)
+                nome_exibicao = (
+                    partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                )
+              else:
+                nome_exibicao = nome_arquivo
+
+              extensoes_imagem = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+              if url_file.lower().endswith(extensoes_imagem):
+                try:
+                  st.image(
+                      url_file,
+                      width=450,
+                      caption=(
+                          f"Evidência {idx_f + 1} - Passo"
+                          f" {num_passo}: {nome_exibicao}"
+                      ),
+                  )
+                except Exception:
+                  st.markdown(
+                      f"📥 Baixar Arquivo {idx_f + 1}:"
+                      f" [**{nome_exibicao}**]({url_file})"
+                  )
+              else:
+                st.markdown(
+                    f"📄 Arquivo {idx_f + 1}:"
+                    f" [**{nome_exibicao}**]({url_file})"
+                )
+      st.markdown("")
+  else:
+    st.success(f"**Solução Recomendada:**\n{solucao_data}")
+
 
 # ==========================================
 # ABA 1: CONSULTA COM TABELA INTERATIVA
 # ==========================================
 indice_diag = abas_navegacao.index("📋 Diagnósticos")
 with tabs[indice_diag]:
-    st.subheader("🔍 Base Mapeada de Ocorrências")
-    col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
-    
-    with col_f1:
-        sist_base = set(LISTA_SISTEMA)
-        if not df_ocorrencias.empty and "sistema" in df_ocorrencias.columns:
-            sist_base.update(df_ocorrencias["sistema"].dropna().unique())
-        sist_opt = ["Todos"] + sorted(list(sist_base))
-        f_sist = st.selectbox("Filtrar por Sistema:", sist_opt, key="f_sist_tab0")
-    with col_f2:
-        hw_base = set(LISTA_HARDWARE)
-        if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns:
-            hw_base.update(df_ocorrencias["equipamento"].dropna().unique())
-        hw_opt = ["Todos"] + sorted(list(hw_base))
-        f_hw = st.selectbox("Filtrar por Hardware:", hw_opt, key="f_hw_tab0")
-    with col_f3:
-        f_busca = st.text_input("🔍 Buscar termo ou palavra-chave:", "", key="f_busca_tab0", placeholder="Ex: DLL, facial, timeout, IP...")
+  st.subheader("🔍 Base Mapeada de Ocorrências")
+  col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
 
-    df_filtered = df_ocorrencias.copy()
-    if not df_filtered.empty:
-        if f_sist != "Todos":
-            df_filtered = df_filtered[df_filtered["sistema"] == f_sist]
-        if f_hw != "Todos":
-            df_filtered = df_filtered[df_filtered["equipamento"] == f_hw]
-        if f_busca:
-            palavras = [p.strip() for p in f_busca.split() if p.strip()]
-            if palavras:
-                regex_pattern = '|'.join([re.escape(p) for p in palavras])
-                df_filtered = df_filtered[
-                    df_filtered["problema"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True) |
-                    df_filtered["motivo"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True) |
-                    df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
-                ]
+  with col_f1:
+    sist_base = set(LISTA_SISTEMA)
+    if not df_ocorrencias.empty and "sistema" in df_ocorrencias.columns:
+      sist_base.update(df_ocorrencias["sistema"].dropna().unique())
+    sist_opt = ["Todos"] + sorted(list(sist_base))
+    f_sist = st.selectbox("Filtrar por Sistema:", sist_opt, key="f_sist_tab0")
+  with col_f2:
+    hw_base = set(LISTA_HARDWARE)
+    if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns:
+      hw_base.update(df_ocorrencias["equipamento"].dropna().unique())
+    hw_opt = ["Todos"] + sorted(list(hw_base))
+    f_hw = st.selectbox("Filtrar por Hardware:", hw_opt, key="f_hw_tab0")
+  with col_f3:
+    f_busca = st.text_input(
+        "🔍 Buscar termo ou palavra-chave:",
+        "",
+        key="f_busca_tab0",
+        placeholder="Ex: DLL, facial, timeout, IP...",
+    )
 
-    st.session_state.df_filtered = df_filtered
+  df_filtered = df_ocorrencias.copy()
+  if not df_filtered.empty:
+    if f_sist != "Todos":
+      df_filtered = df_filtered[df_filtered["sistema"] == f_sist]
+    if f_hw != "Todos":
+      df_filtered = df_filtered[df_filtered["equipamento"] == f_hw]
+    if f_busca:
+      palavras = [p.strip() for p in f_busca.split() if p.strip()]
+      if palavras:
+        regex_pattern = "|".join([re.escape(p) for p in palavras])
+        df_filtered = df_filtered[
+            df_filtered["problema"]
+            .astype(str)
+            .str.contains(regex_pattern, case=False, na=False, regex=True)
+            | df_filtered["motivo"]
+            .astype(str)
+            .str.contains(regex_pattern, case=False, na=False, regex=True)
+            | df_filtered["solucao"]
+            .astype(str)
+            .str.contains(regex_pattern, case=False, na=False, regex=True)
+        ]
 
-    if df_filtered.empty:
-        st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
-    else:
-        st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
-        st.caption("💡 **Como usar:** Digite acima para refinar a busca e **clique diretamente na linha** da tabela abaixo para carregar os detalhes completos.")
-        
-        df_display = df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]].copy().reset_index(drop=True)
-        
-        evento_tabela = st.dataframe(
-            df_display,
-            column_config={
-                "sistema": "Sistema",
-                "equipamento": "Hardware",
-                "problema": "Problema (Sintoma)",
-                "status": "Status",
-                "nivel": "Nível"
-            },
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row"
+  st.session_state.df_filtered = df_filtered
+
+  if df_filtered.empty:
+    st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
+  else:
+    st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
+    st.caption(
+        "💡 **Como usar:** Digite acima para refinar a busca e **clique"
+        " diretamente na linha** da tabela abaixo para carregar os detalhes"
+        " completos."
+    )
+
+    df_display = (
+        df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]]
+        .copy()
+        .reset_index(drop=True)
+    )
+
+    evento_tabela = st.dataframe(
+        df_display,
+        column_config={
+            "sistema": "Sistema",
+            "equipamento": "Hardware",
+            "problema": "Problema (Sintoma)",
+            "status": "Status",
+            "nivel": "Nível",
+        },
+        hide_index=True,
+        use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    ocor_id_selecionado = None
+    selected_rows = []
+    if isinstance(evento_tabela, dict) and "selection" in evento_tabela:
+      selected_rows = evento_tabela["selection"].get("rows", [])
+    elif hasattr(evento_tabela, "selection") and hasattr(
+        evento_tabela.selection, "rows"
+    ):
+      selected_rows = evento_tabela.selection.rows
+
+    if selected_rows:
+      idx_tabela = selected_rows[0]
+      df_filtered_reset = df_filtered.reset_index(drop=True)
+      ocor_id_selecionado = int(df_filtered_reset.iloc[idx_tabela]["id"])
+
+    if ocor_id_selecionado:
+      row = df_filtered[df_filtered["id"] == ocor_id_selecionado].iloc[0]
+      ocor_id = int(row["id"])
+      sist = row.get("sistema", "N/A")
+      hw = row.get("equipamento", "N/A")
+      prob = row.get("problema", "Sem descrição")
+      status = row.get("status", "🟢 Solução Definitiva")
+      nivel = row.get("nivel", "N1")
+      anexo = row.get("anexo_url", None)
+      solucao_val = row.get("solucao", "")
+
+      is_fav = ocor_id in st.session_state.favoritos
+      texto_botao_fav = (
+          "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
+      )
+
+      st.markdown("---")
+      with st.container(border=True):
+        col_det_title, col_det_fav = st.columns([4, 1])
+        with col_det_title:
+          st.markdown(f"### 🚨 [ID #{ocor_id}] {prob}")
+        with col_det_fav:
+          if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
+            if is_fav:
+              st.session_state.favoritos = [
+                  i for i in st.session_state.favoritos if i != ocor_id
+              ]
+              st.toast("Removido dos favoritos!", icon="🗑️")
+            else:
+              if ocor_id not in st.session_state.favoritos:
+                st.session_state.favoritos.append(ocor_id)
+              st.toast("Adicionado aos favoritos com sucesso!", icon="⭐")
+            st.rerun()
+
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(f"**💻 Sistema:** {sist}")
+        c2.markdown(f"**⚙️ Hardware:** {hw}")
+        c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
+
+        st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
+        st.markdown("---")
+
+        renderizar_solucao_estruturada(solucao_val, anexo)
+
+        st.markdown("---")
+        v_pos = row.get("votos_pos", 0) or 0
+        v_neg = row.get("votos_neg", 0) or 0
+
+        comentarios = buscar_comentarios(ocor_id)
+        user_email_atual = (
+            st.session_state.user.email
+            if st.session_state.user
+            else "visitante@actuar.group"
         )
-        
-        ocor_id_selecionado = None
-        selected_rows = []
-        if isinstance(evento_tabela, dict) and "selection" in evento_tabela:
-            selected_rows = evento_tabela["selection"].get("rows", [])
-        elif hasattr(evento_tabela, "selection") and hasattr(evento_tabela.selection, "rows"):
-            selected_rows = evento_tabela.selection.rows
-            
-        if selected_rows:
-            idx_tabela = selected_rows[0]
-            df_filtered_reset = df_filtered.reset_index(drop=True)
-            ocor_id_selecionado = int(df_filtered_reset.iloc[idx_tabela]["id"])
-        
-        if ocor_id_selecionado:
-            row = df_filtered[df_filtered["id"] == ocor_id_selecionado].iloc[0]
-            ocor_id = int(row['id'])
-            sist = row.get('sistema', 'N/A')
-            hw = row.get('equipamento', 'N/A')
-            prob = row.get('problema', 'Sem descrição')
-            status = row.get('status', '🟢 Solução Definitiva')
-            nivel = row.get('nivel', 'N1')
-            anexo = row.get('anexo_url', None)
-            solucao_val = row.get('solucao', '')
-            
-            is_fav = ocor_id in st.session_state.favoritos
-            texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
-            
-            st.markdown("---")
-            with st.container(border=True):
-                col_det_title, col_det_fav = st.columns([4, 1])
-                with col_det_title:
-                    st.markdown(f"### 🚨 [ID #{ocor_id}] {prob}")
-                with col_det_fav:
-                    if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
-                        if is_fav:
-                            st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                            st.toast("Removido dos favoritos!", icon="🗑️")
-                        else:
-                            if ocor_id not in st.session_state.favoritos:
-                                st.session_state.favoritos.append(ocor_id)
-                            st.toast("Adicionado aos favoritos com sucesso!", icon="⭐")
-                        st.rerun()
-                
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**💻 Sistema:** {sist}")
-                c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
-                
-                st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
-                st.markdown("---")
-                
-                renderizar_solucao_estruturada(solucao_val, anexo)
 
-                st.markdown("---")
-                v_pos = row.get('votos_pos', 0) or 0
-                v_neg = row.get('votos_neg', 0) or 0
-                
-                comentarios = buscar_comentarios(ocor_id)
-                user_email_atual = DEFAULT_USER_EMAIL
-                
-                user_voto = None
-                for c in comentarios:
-                    if c["usuario"].lower() == user_email_atual.lower():
-                        if c["comentario"] == "[VOTO_POS]":
-                            user_voto = "pos"
-                            break
-                        elif c["comentario"] == "[VOTO_NEG]":
-                            user_voto = "neg"
-                            break
+        user_voto = None
+        for c in comentarios:
+          if c["usuario"].lower() == user_email_atual.lower():
+            if c["comentario"] == "[VOTO_POS]":
+              user_voto = "pos"
+              break
+            elif c["comentario"] == "[VOTO_NEG]":
+              user_voto = "neg"
+              break
 
-                texto_pos = f"👍 Funcionou ({v_pos})" + (" ✅" if user_voto == "pos" else "")
-                texto_neg = f"👎 Não funcionou ({v_neg})" + (" ✅" if user_voto == "neg" else "")
+        texto_pos = f"👍 Funcionou ({v_pos})" + (
+            " ✅" if user_voto == "pos" else ""
+        )
+        texto_neg = f"👎 Não funcionou ({v_neg})" + (
+            " ✅" if user_voto == "neg" else ""
+        )
 
-                col_v1, col_v2, col_space = st.columns([1, 1, 4])
-                with col_v1:
-                    if st.button(texto_pos, key=f"pos_{ocor_id}"):
-                        gerenciar_voto(ocor_id, "pos", user_email_atual)
-                        st.rerun()
-                with col_v2:
-                    if st.button(texto_neg, key=f"neg_{ocor_id}"):
-                        gerenciar_voto(ocor_id, "neg", user_email_atual)
-                        st.rerun()
+        col_v1, col_v2, col_space = st.columns([1, 1, 4])
+        with col_v1:
+          if st.button(texto_pos, key=f"pos_{ocor_id}"):
+            gerenciar_voto(ocor_id, "pos", user_email_atual)
+            st.rerun()
+        with col_v2:
+          if st.button(texto_neg, key=f"neg_{ocor_id}"):
+            gerenciar_voto(ocor_id, "neg", user_email_atual)
+            st.rerun()
 
-                st.markdown("**💬 Observações dos Analistas:**")
-                comentarios_reais = [c for c in comentarios if not c['comentario'].startswith("[VOTO_")]
-                for c in comentarios_reais:
-                    st.caption(f"**{c['usuario']}**: {c['comentario']}")
-                
-                with st.form(key=f"form_coment_{ocor_id}"):
-                    novo_coment = st.text_input("Adicionar dica de campo:", placeholder="Ex: Funciona apenas em modo Admin")
-                    if st.form_submit_button("Enviar Comentário"):
-                        if novo_coment:
-                            salvar_comentario(ocor_id, user_email_atual, novo_coment)
-                            st.toast("Anotação adicionada!", icon="💬")
-                            st.rerun()
+        st.markdown("**💬 Observações dos Analistas:**")
+        comentarios_reais = [
+            c for c in comentarios if not c["comentario"].startswith("[VOTO_")
+        ]
+        for c in comentarios_reais:
+          st.caption(f"**{c['usuario']}**: {c['comentario']}")
 
-                # SEÇÃO DE EDIÇÃO E EXCLUSÃO TOTALMENTE LIBERADA PARA TODOS
-                st.markdown("---")
-                with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
-                    with st.form(key=f"form_edit_{ocor_id}"):
-                        edit_col1, edit_col2 = st.columns(2)
-                        
-                        idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
-                        idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
-                        
-                        lista_status = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
-                        idx_status = lista_status.index(status) if status in lista_status else 0
-                        
-                        lista_niveis = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
-                        idx_nivel = [i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])]
-                        idx_nivel = idx_nivel[0] if idx_nivel else 0
+        with st.form(key=f"form_coment_{ocor_id}"):
+          novo_coment = st.text_input(
+              "Adicionar dica de campo:",
+              placeholder="Ex: Funciona apenas em modo Admin",
+          )
+          if st.form_submit_button("Enviar Comentário"):
+            if novo_coment:
+              salvar_comentario(ocor_id, user_email_atual, novo_coment)
+              st.toast("Anotação adicionada!", icon="💬")
+              st.rerun()
 
-                        with edit_col1:
-                            edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
-                            edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
-                        with edit_col2:
-                            edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
-                            edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
+        if st.session_state.user_role == "Admin":
+          st.markdown("---")
+          with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
+            with st.form(key=f"form_edit_{ocor_id}"):
+              edit_col1, edit_col2 = st.columns(2)
 
-                        edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
-                        
-                        st.markdown("📎 **Editar / Adicionar Arquivos do Problema (Sintoma):**")
-                        urls_prob_existentes = [u.strip() for u in str(anexo).split(",") if u.strip()] if anexo and pd.notna(anexo) else []
-                        urls_prob_existentes = list(dict.fromkeys(urls_prob_existentes))
-                        
-                        urls_prob_para_manter = []
-                        if urls_prob_existentes:
-                            for idx_pi, url_pi in enumerate(urls_prob_existentes):
-                                nome_arq_pi = url_pi.split("/")[-1].split("?")[0]
-                                cp1, cp2 = st.columns([3, 1])
-                                with cp1:
-                                    if url_pi.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-                                        try:
-                                            st.image(url_pi, width=150)
-                                        except Exception:
-                                            st.markdown(f"📄 {nome_arq_pi}")
-                                    else:
-                                        st.markdown(f"📄 {nome_arq_pi}")
-                                with cp2:
-                                    if st.checkbox("Manter", value=True, key=f"manter_prob_{ocor_id}_{idx_pi}"):
-                                        urls_prob_para_manter.append(url_pi)
+              idx_sist = (
+                  LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+              )
+              idx_hw = (
+                  LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+              )
 
-                        edit_files_prob = st.file_uploader("Adicionar novos arquivos ao Problema:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_prob_files_{ocor_id}")
-                        
-                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
-                        
-                        st.markdown("### 🛠️ Editar Passos da Solução")
-                        
-                        passos_atuais = []
+              lista_status = [
+                  "🟢 Solução Definitiva",
+                  "🟡 Contorno / Paliativo",
+                  "🔴 Bug / Em Análise",
+              ]
+              idx_status = (
+                  lista_status.index(status) if status in lista_status else 0
+              )
+
+              lista_niveis = [
+                  "N1 - Fácil / Rápido",
+                  "N2 - Intermediário",
+                  "N3 - Avançado / Laboratório",
+              ]
+              idx_nivel = [
+                  i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])
+              ]
+              idx_nivel = idx_nivel[0] if idx_nivel else 0
+
+              with edit_col1:
+                edit_hw = st.selectbox(
+                    "⚙️ Catraca / Hardware:",
+                    LISTA_HARDWARE,
+                    index=idx_hw,
+                    key=f"eh_{ocor_id}",
+                )
+                edit_status = st.selectbox(
+                    "📌 Status:",
+                    lista_status,
+                    index=idx_status,
+                    key=f"est_{ocor_id}",
+                )
+              with edit_col2:
+                edit_sist = st.selectbox(
+                    "💻 Sistema:",
+                    LISTA_SISTEMA,
+                    index=idx_sist,
+                    key=f"es_{ocor_id}",
+                )
+                edit_nivel = st.selectbox(
+                    "📊 Nível:",
+                    lista_niveis,
+                    index=idx_nivel,
+                    key=f"en_{ocor_id}",
+                )
+
+              edit_prob = st.text_input(
+                  "Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}"
+              )
+
+              st.markdown(
+                  "📎 **Editar / Adicionar Arquivos do Problema (Sintoma):**"
+              )
+              urls_prob_existentes = (
+                  [u.strip() for u in str(anexo).split(",") if u.strip()]
+                  if anexo and pd.notna(anexo)
+                  else []
+              )
+              urls_prob_existentes = list(dict.fromkeys(urls_prob_existentes))
+
+              urls_prob_para_manter = []
+              if urls_prob_existentes:
+                for idx_pi, url_pi in enumerate(urls_prob_existentes):
+                  nome_arq_pi = url_pi.split("/")[-1].split("?")[0]
+                  cp1, cp2 = st.columns([3, 1])
+                  with cp1:
+                    if url_pi.lower().endswith(
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                    ):
+                      try:
+                        st.image(url_pi, width=150)
+                      except Exception:
+                        st.markdown(f"📄 {nome_arq_pi}")
+                    else:
+                      st.markdown(f"📄 {nome_arq_pi}")
+                  with cp2:
+                    if st.checkbox(
+                        "Manter",
+                        value=True,
+                        key=f"manter_prob_{ocor_id}_{idx_pi}",
+                    ):
+                      urls_prob_para_manter.append(url_pi)
+
+              edit_files_prob = st.file_uploader(
+                  "Adicionar novos arquivos ao Problema:",
+                  type=[
+                      "png",
+                      "jpg",
+                      "jpeg",
+                      "pdf",
+                      "txt",
+                      "docx",
+                      "xlsx",
+                      "csv",
+                      "zip",
+                  ],
+                  accept_multiple_files=True,
+                  key=f"edit_prob_files_{ocor_id}",
+              )
+
+              edit_motivo = st.text_area(
+                  "Motivo (Causa Raiz):",
+                  value=row.get("motivo", ""),
+                  key=f"em_{ocor_id}",
+              )
+
+              st.markdown("### 🛠️ Editar Passos da Solução")
+
+              passos_atuais = []
+              try:
+                if solucao_val and str(solucao_val).strip().startswith("["):
+                  passos_atuais = json.loads(str(solucao_val))
+              except Exception:
+                pass
+
+              if not passos_atuais:
+                passos_atuais = [{
+                    "passo": 1,
+                    "texto": str(solucao_val),
+                    "anexo": None,
+                }]
+
+              edit_passos_dados = []
+              for p_num in range(1, 4):
+                p_obj = next(
+                    (x for x in passos_atuais if x.get("passo") == p_num),
+                    {"texto": "", "anexo": None},
+                )
+                st.markdown(f"**Passo {p_num}**")
+                e_txt = st.text_area(
+                    f"Texto do Passo {p_num}:",
+                    value=p_obj.get("texto", ""),
+                    key=f"edit_p_txt_{ocor_id}_{p_num}",
+                )
+
+                anexo_atual_passo = p_obj.get("anexo")
+                urls_existentes = (
+                    [
+                        u.strip()
+                        for u in str(anexo_atual_passo).split(",")
+                        if u.strip()
+                    ]
+                    if anexo_atual_passo and pd.notna(anexo_atual_passo)
+                    else []
+                )
+                urls_existentes = list(dict.fromkeys(urls_existentes))
+
+                urls_para_manter = []
+                if urls_existentes:
+                  st.markdown("📷 *Imagens atuais (desmarque para excluir):*")
+                  for idx_img, url_img in enumerate(urls_existentes):
+                    nome_arq = url_img.split("/")[-1].split("?")[0]
+                    col_prev, col_chk = st.columns([3, 1])
+                    with col_prev:
+                      if url_img.lower().endswith(
+                          (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                      ):
                         try:
-                            if solucao_val and str(solucao_val).strip().startswith("["):
-                                passos_atuais = json.loads(str(solucao_val))
+                          st.image(url_img, width=150)
                         except Exception:
-                            pass
-                        
-                        if not passos_atuais:
-                            passos_atuais = [{"passo": 1, "texto": str(solucao_val), "anexo": None}]
+                          st.markdown(f"📄 {nome_arq}")
+                      else:
+                        st.markdown(f"📄 {nome_arq}")
+                    with col_chk:
+                      if st.checkbox(
+                          "Manter",
+                          value=True,
+                          key=f"manter_{ocor_id}_{p_num}_{idx_img}",
+                      ):
+                        urls_para_manter.append(url_img)
 
-                        edit_passos_dados = []
-                        for p_num in range(1, 4):
-                            p_obj = next((x for x in passos_atuais if x.get("passo") == p_num), {"texto": "", "anexo": None})
-                            st.markdown(f"**Passo {p_num}**")
-                            e_txt = st.text_area(f"Texto do Passo {p_num}:", value=p_obj.get("texto", ""), key=f"edit_p_txt_{ocor_id}_{p_num}")
-                            
-                            anexo_atual_passo = p_obj.get("anexo")
-                            urls_existentes = [u.strip() for u in str(anexo_atual_passo).split(",") if u.strip()] if anexo_atual_passo and pd.notna(anexo_atual_passo) else []
-                            urls_existentes = list(dict.fromkeys(urls_existentes))
-                            
-                            urls_para_manter = []
-                            if urls_existentes:
-                                st.markdown("📷 *Imagens atuais (desmarque para excluir):*")
-                                for idx_img, url_img in enumerate(urls_existentes):
-                                    nome_arq = url_img.split("/")[-1].split("?")[0]
-                                    col_prev, col_chk = st.columns([3, 1])
-                                    with col_prev:
-                                        if url_img.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-                                            try:
-                                                st.image(url_img, width=150)
-                                            except Exception:
-                                                st.markdown(f"📄 {nome_arq}")
-                                        else:
-                                            st.markdown(f"📄 {nome_arq}")
-                                    with col_chk:
-                                        if st.checkbox("Manter", value=True, key=f"manter_{ocor_id}_{p_num}_{idx_img}"):
-                                            urls_para_manter.append(url_img)
+                e_files = st.file_uploader(
+                    f"Adicionar novas fotos ao Passo {p_num}:",
+                    type=[
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "pdf",
+                        "txt",
+                        "docx",
+                        "xlsx",
+                        "csv",
+                        "zip",
+                    ],
+                    accept_multiple_files=True,
+                    key=f"edit_p_file_{ocor_id}_{p_num}",
+                )
 
-                            e_files = st.file_uploader(f"Adicionar novas fotos ao Passo {p_num}:", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_num}")
-                            
-                            if e_txt.strip() or urls_para_manter or e_files:
-                                novas_urls = upload_multiplos_arquivos(e_files) if e_files else None
-                                lista_final_urls = list(urls_para_manter)
-                                if novas_urls:
-                                    lista_final_urls.extend([u.strip() for u in novas_urls.split(",") if u.strip()])
-                                lista_final_urls = list(dict.fromkeys(lista_final_urls))
-                                url_final_passo = ",".join(lista_final_urls) if lista_final_urls else None
-                                        
-                                edit_passos_dados.append({
-                                    "passo": p_num,
-                                    "texto": e_txt.strip(),
-                                    "anexo": url_final_passo
-                                })
+                if e_txt.strip() or urls_para_manter or e_files:
+                  novas_urls = (
+                      upload_multiplos_arquivos(e_files) if e_files else None
+                  )
+                  lista_final_urls = list(urls_para_manter)
+                  if novas_urls:
+                    lista_final_urls.extend([
+                        u.strip() for u in novas_urls.split(",") if u.strip()
+                    ])
+                  lista_final_urls = list(dict.fromkeys(lista_final_urls))
+                  url_final_passo = (
+                      ",".join(lista_final_urls) if lista_final_urls else None
+                  )
 
-                        if st.form_submit_button("💾 Salvar Alterações"):
-                            json_solucao_final = json.dumps(edit_passos_dados) if edit_passos_dados else ""
-                            
-                            novas_urls_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else None
-                            lista_final_prob = list(urls_prob_para_manter)
-                            if novas_urls_prob:
-                                lista_final_prob.extend([u.strip() for u in novas_urls_prob.split(",") if u.strip()])
-                            lista_final_prob = list(dict.fromkeys(lista_final_prob))
-                            anexo_url_final = ",".join(lista_final_prob) if lista_final_prob else None
-                            
-                            dados_novos = {
-                                "sistema": edit_sist,
-                                "equipamento": edit_hw,
-                                "problema": edit_prob,
-                                "motivo": edit_motivo,
-                                "solucao": json_solucao_final,
-                                "status": edit_status,
-                                "nivel": edit_nivel,
-                                "anexo_url": anexo_url_final
-                            }
-                            
-                            if atualizar_ocorrencia_db(ocor_id, dados_novos, DEFAULT_USER_EMAIL):
-                                st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
-                                st.rerun()
+                  edit_passos_dados.append({
+                      "passo": p_num,
+                      "texto": e_txt.strip(),
+                      "anexo": url_final_passo,
+                  })
 
-                if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
-                    sucesso = deletar_ocorrencia_db(ocor_id, DEFAULT_USER_EMAIL)
-                    if sucesso:
-                        st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
-                        st.rerun()
+              if st.form_submit_button("💾 Salvar Alterações"):
+                json_solucao_final = (
+                    json.dumps(edit_passos_dados) if edit_passos_dados else ""
+                )
+
+                novas_urls_prob = (
+                    upload_multiplos_arquivos(edit_files_prob)
+                    if edit_files_prob
+                    else None
+                )
+                lista_final_prob = list(urls_prob_para_manter)
+                if novas_urls_prob:
+                  lista_final_prob.extend([
+                      u.strip() for u in novas_urls_prob.split(",") if u.strip()
+                  ])
+                lista_final_prob = list(dict.fromkeys(lista_final_prob))
+                anexo_url_final = (
+                    ",".join(lista_final_prob) if lista_final_prob else None
+                )
+
+                dados_novos = {
+                    "sistema": edit_sist,
+                    "equipamento": edit_hw,
+                    "problema": edit_prob,
+                    "motivo": edit_motivo,
+                    "solucao": json_solucao_final,
+                    "status": edit_status,
+                    "nivel": edit_nivel,
+                    "anexo_url": anexo_url_final,
+                }
+
+                if atualizar_ocorrencia_db(
+                    ocor_id, dados_novos, st.session_state.user.email
+                ):
+                  st.toast(
+                      f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅"
+                  )
+                  st.rerun()
+
+          if st.button(
+              f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"
+          ):
+            sucesso = deletar_ocorrencia_db(
+                ocor_id, st.session_state.user.email
+            )
+            if sucesso:
+              st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
+              st.rerun()
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
 # ==========================================
-def buscar_melhor_solucao_copilot(query, df):
-    if df.empty or not query:
-        return []
-    
-    stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ele", "seu", "sua", "ou", "quando", "muito", "nos", "já", "só", "pelo", "pela", "até", "isso", "ela", "entre", "depois", "sem", "mesmo", "aos", "também"}
-    palavras_query = [p.lower() for p in re.findall(r'\w+', query) if p.lower() not in stopwords and len(p) > 2]
-    
-    if not palavras_query:
-        return []
-        
-    resultados = []
-    for _, row in df.iterrows():
-        texto_base = f"{row.get('problema', '')} {row.get('motivo', '')} {row.get('equipamento', '')} {row.get('sistema', '')} {row.get('solucao', '')}".lower()
-        score = 0
-        
-        for p in palavras_query:
-            if p in texto_base:
-                if p in str(row.get('problema', '')).lower() or p in str(row.get('equipamento', '')).lower():
-                    score += 3
-                else:
-                    score += 1
-            else:
-                for palavra_texto in re.findall(r'\w+', texto_base):
-                    if len(p) >= 4 and (p in palavra_texto or palavra_texto in p):
-                        score += 1.5
-                        break
-                        
-        if score > 0:
-            resultados.append((score, row))
-            
-    resultados.sort(key=lambda x: x[0], reverse=True)
-    return [r[1] for r in resultados[:3]]
-
 indice_copilot = abas_navegacao.index("🤖 Copilot IA")
 with tabs[indice_copilot]:
-    st.subheader("🤖 Assistente Inteligente de Diagnóstico (Copilot)")
-    st.markdown("Descreva o problema ou sintoma em **linguagem natural** (ex: *A catraca do cliente perdeu a conexão com o IP após a atualização*). O Copilot cruzará os dados da base de conhecimento instantaneamente para sugerir o procedimento ideal.")
-    
-    if "copilot_messages" not in st.session_state:
-        st.session_state.copilot_messages = [
-            {"role": "assistant", "content": "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente de campo ou o sintoma que você está enfrentando para que eu encontre a solução exata."}
-        ]
-        
-    for msg in st.session_state.copilot_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if "matches" in msg and msg["matches"]:
-                for m in msg["matches"]:
-                    with st.expander(f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} / {m['equipamento']})"):
-                        st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
-                        renderizar_solucao_estruturada(m['solucao'], m['anexo_url'])
-                        
-    user_query = st.chat_input("Ex: Catraca travou na leitura facial após reiniciar o serviço...")
-    if user_query:
-        st.session_state.copilot_messages.append({"role": "user", "content": user_query})
-        with st.chat_message("user"):
-            st.markdown(user_query)
-            
-        with st.chat_message("assistant"):
-            with st.spinner("Analisando base de conhecimento e cruzando dados..."):
-                time.sleep(0.4)
-                matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
-                
-                if matches_raw:
-                    resposta_texto = f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is) na base de conhecimento para o seu relato:"
-                    st.markdown(resposta_texto)
-                    
-                    match_dicts = []
-                    for row in matches_raw:
-                        m_dict = {
-                            "id": int(row["id"]),
-                            "problema": row.get("problema", ""),
-                            "motivo": row.get("motivo", ""),
-                            "sistema": row.get("sistema", ""),
-                            "equipamento": row.get("equipamento", ""),
-                            "solucao": row.get("solucao", ""),
-                            "anexo_url": row.get("anexo_url", "")
-                        }
-                        match_dicts.append(m_dict)
-                        with st.expander(f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']} ({m_dict['sistema']} / {m_dict['equipamento']})"):
-                            st.markdown(f"**Motivo / Causa Raiz:** {m_dict['motivo']}")
-                            renderizar_solucao_estruturada(m_dict['solucao'], m_dict['anexo_url'])
-                            
-                    st.session_state.copilot_messages.append({
-                        "role": "assistant",
-                        "content": resposta_texto,
-                        "matches": match_dicts
-                    })
-                else:
-                    resposta_texto = "Não encontrei nenhuma tratativa exata na base para este problema específico. Recomendo verificar com a equipe sênior ou cadastrar este novo caso após resolvê-lo na aba **Cadastrar Tratativa**."
-                    st.markdown(resposta_texto)
-                    st.session_state.copilot_messages.append({
-                        "role": "assistant",
-                        "content": resposta_texto,
-                        "matches": []
-                    })
+  st.subheader("🤖 Assistente Inteligente de Diagnóstico (Copilot)")
+  st.markdown(
+      "Descreva o problema ou sintoma em **linguagem natural** (ex: *A catraca"
+      " do cliente perdeu a conexão com o IP após a atualização*). O Copilot"
+      " cruzará os dados da base de conhecimento instantaneamente para"
+      " sugerir o procedimento ideal."
+  )
+
+  if "copilot_messages" not in st.session_state:
+    st.session_state.copilot_messages = [{
+        "role": "assistant",
+        "content": (
+            "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente"
+            " de campo ou o sintoma que você está enfrentando para que eu"
+            " encontre a solução exata."
+        ),
+    }]
+
+  for msg in st.session_state.copilot_messages:
+    with st.chat_message(msg["role"]):
+      st.markdown(msg["content"])
+      if "matches" in msg and msg["matches"]:
+        for m in msg["matches"]:
+          with st.expander(
+              f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} /"
+              f" {m['equipamento']})"
+          ):
+            st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
+            renderizar_solucao_estruturada(m["solucao"], m["anexo_url"])
+
+  user_query = st.chat_input(
+      "Ex: Catraca travou na leitura facial após reiniciar o serviço..."
+  )
+  if user_query:
+    st.session_state.copilot_messages.append(
+        {"role": "user", "content": user_query}
+    )
+    with st.chat_message("user"):
+      st.markdown(user_query)
+
+    with st.chat_message("assistant"):
+      with st.spinner(
+          "Analisando base de conhecimento e cruzando dados..."
+      ):
+        time.sleep(0.4)
+        matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
+
+        if matches_raw:
+          resposta_texto = (
+              f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is)"
+              " na base de conhecimento para o seu relato:"
+          )
+          st.markdown(resposta_texto)
+
+          match_dicts = []
+          for row in matches_raw:
+            m_dict = {
+                "id": int(row["id"]),
+                "problema": row.get("problema", ""),
+                "motivo": row.get("motivo", ""),
+                "sistema": row.get("sistema", ""),
+                "equipamento": row.get("equipamento", ""),
+                "solucao": row.get("solucao", ""),
+                "anexo_url": row.get("anexo_url", ""),
+            }
+            match_dicts.append(m_dict)
+            with st.expander(
+                f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']}"
+                f" ({m_dict['sistema']} / {m_dict['equipamento']})"
+            ):
+              st.markdown(f"**Motivo / Causa Raiz:** {m_dict['motivo']}")
+              renderizar_solucao_estruturada(
+                  m_dict["solucao"], m_dict["anexo_url"]
+              )
+
+          st.session_state.copilot_messages.append({
+              "role": "assistant",
+              "content": resposta_texto,
+              "matches": match_dicts,
+          })
+        else:
+          resposta_texto = (
+              "Não encontrei nenhuma tratativa exata na base para este"
+              " problema específico. Recomendo verificar com a equipe sênior ou"
+              " cadastrar este novo caso após resolvê-lo na aba **Cadastrar"
+              " Tratativa**."
+          )
+          st.markdown(resposta_texto)
+          st.session_state.copilot_messages.append({
+              "role": "assistant",
+              "content": resposta_texto,
+              "matches": [],
+          })
 
 # ==========================================
 # ABA 3: MODO TV
 # ==========================================
 indice_tv = abas_navegacao.index("📺 Modo TV")
 with tabs[indice_tv]:
-    st.subheader("📺 Painel TV - Monitoramento em Tempo Real")
-    st.caption("Visão executiva simplificada para exibição em monitores e TVs de suporte.")
-    
-    if df_ocorrencias.empty:
-        st.info("Nenhuma ocorrência registrada para exibir no Modo TV.")
-    else:
-        total_ocorr = len(df_ocorrencias)
-        total_definitiva = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Definitiva", case=False, na=False)])
-        total_contorno = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Contorno", case=False, na=False)])
-        total_bug = len(df_ocorrencias[df_ocorrencias["status"].str.contains("Bug", case=False, na=False)])
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total de Ocorrências", total_ocorr)
-        m2.metric("Soluções Definitivas", total_definitiva)
-        m3.metric("Contornos / Paliativos", total_contorno)
-        m4.metric("Bugs / Em Análise", total_bug)
-        
-        st.markdown("---")
-        st.markdown("### 📋 Últimas Ocorrências Registradas")
-        
-        df_tv = df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]].head(12).reset_index(drop=True)
-        st.dataframe(
-            df_tv,
-            column_config={
-                "sistema": "Sistema",
-                "equipamento": "Hardware",
-                "problema": "Problema (Sintoma)",
-                "status": "Status",
-                "nivel": "Nível"
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        st.markdown("---")
-        auto_refresh = st.checkbox("🔄 Ativar atualização automática (a cada 60 segundos)", value=False, key="tv_auto_refresh")
-        if auto_refresh:
-            time.sleep(60)
-            st.rerun()
+  st.subheader("📺 Painel TV - Monitoramento em Tempo Real")
+  st.caption(
+      "Visão executiva simplificada para exibição em monitores e TVs de suporte."
+  )
+
+  if df_ocorrencias.empty:
+    st.info("Nenhuma ocorrência registrada para exibir no Modo TV.")
+  else:
+    total_ocorr = len(df_ocorrencias)
+    total_definitiva = len(
+        df_ocorrencias[
+            df_ocorrencias["status"].str.contains(
+                "Definitiva", case=False, na=False
+            )
+        ]
+    )
+    total_contorno = len(
+        df_ocorrencias[
+            df_ocorrencias["status"].str.contains(
+                "Contorno", case=False, na=False
+            )
+        ]
+    )
+    total_bug = len(
+        df_ocorrencias[
+            df_ocorrencias["status"].str.contains("Bug", case=False, na=False)
+        ]
+    )
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total de Ocorrências", total_ocorr)
+    m2.metric("Soluções Definitivas", total_definitiva)
+    m3.metric("Contornos / Paliativos", total_contorno)
+    m4.metric("Bugs / Em Análise", total_bug)
+
+    st.markdown("---")
+    st.markdown("### 📋 Últimas Ocorrências Registradas")
+
+    df_tv = (
+        df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]]
+        .head(12)
+        .reset_index(drop=True)
+    )
+    st.dataframe(
+        df_tv,
+        column_config={
+            "sistema": "Sistema",
+            "equipamento": "Hardware",
+            "problema": "Problema (Sintoma)",
+            "status": "Status",
+            "nivel": "Nível",
+        },
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    auto_refresh = st.checkbox(
+        "🔄 Ativar atualização automática (a cada 60 segundos)",
+        value=False,
+        key="tv_auto_refresh",
+    )
+    if auto_refresh:
+      time.sleep(60)
+      st.rerun()
 
 # ==========================================
 # ABA 4: MEUS FAVORITOS
 # ==========================================
 indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
 with tabs[indice_fav]:
-    st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
-    st.caption("Acesse rapidamente os problemas que você mais resolve.")
-    
-    if not st.session_state.favoritos or df_ocorrencias.empty:
-        st.info("Você ainda não favoritou nenhuma ocorrência.")
-    else:
-        df_fav = df_ocorrencias[df_ocorrencias["id"].isin(st.session_state.favoritos)]
-        
-        for _, row in df_fav.iterrows():
-            ocor_id = int(row['id'])
-            sist = row.get('sistema', 'N/A')
-            hw = row.get('equipamento', 'N/A')
-            prob = row.get('problema', 'Sem descrição')
-            status = row.get('status', '🟢 Solução Definitiva')
-            nivel = row.get('nivel', 'N1')
-            anexo = row.get('anexo_url', None)
-            solucao_val = row.get('solucao', '')
-            
-            titulo_card_fav = f"⭐ [FAVORITO] {prob}  |  📂 [{sist} • {hw}]  —  {status}"
-            
-            with st.expander(titulo_card_fav):
-                if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
-                    st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                    st.toast("Removido dos favoritos!", icon="🗑️")
-                    st.rerun()
-                
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**💻 Sistema:** {sist}")
-                c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
-                
-                st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
-                st.markdown("---")
-                renderizar_solucao_estruturada(solucao_val, anexo)
+  st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
+  st.caption("Acesse rapidamente os problemas que você mais resolve.")
+
+  if not st.session_state.favoritos or df_ocorrencias.empty:
+    st.info("Você ainda não favoritou nenhuma ocorrência.")
+  else:
+    df_fav = df_ocorrencias[
+        df_ocorrencias["id"].isin(st.session_state.favoritos)
+    ]
+
+    for _, row in df_fav.iterrows():
+      ocor_id = int(row["id"])
+      sist = row.get("sistema", "N/A")
+      hw = row.get("equipamento", "N/A")
+      prob = row.get("problema", "Sem descrição")
+      status = row.get("status", "🟢 Solução Definitiva")
+      nivel = row.get("nivel", "N1")
+      anexo = row.get("anexo_url", None)
+      solucao_val = row.get("solucao", "")
+
+      titulo_card_fav = (
+          f"⭐ [FAVORITO] {prob}  |  📂 [{sist} • {hw}]  —  {status}"
+      )
+
+      with st.expander(titulo_card_fav):
+        if st.button("❌ Remover dos Favoritos", key=f"rm_fav_tab_{ocor_id}"):
+          st.session_state.favoritos = [
+              i for i in st.session_state.favoritos if i != ocor_id
+          ]
+          st.toast("Removido dos favoritos!", icon="🗑️")
+          st.rerun()
+
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(f"**💻 Sistema:** {sist}")
+        c2.markdown(f"**⚙️ Hardware:** {hw}")
+        c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
+
+        st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
+        st.markdown("---")
+        renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
 # ABA 5: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
-    st.subheader("➕ Novo Mapeamento Técnico")
-    with st.form("form_novo", clear_on_submit=True):
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
-            in_status = st.selectbox("📌 Status da Tratativa:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
-        with col_c2:
-            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
-            in_nivel = st.selectbox("📊 Nível de Complexidade:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
+  st.subheader("➕ Novo Mapeamento Técnico")
+  with st.form("form_novo", clear_on_submit=True):
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+      in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
+      in_status = st.selectbox(
+          "📌 Status da Tratativa:",
+          [
+              "🟢 Solução Definitiva",
+              "🟡 Contorno / Paliativo",
+              "🔴 Bug / Em Análise",
+          ],
+      )
+    with col_c2:
+      in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
+      in_nivel = st.selectbox(
+          "📊 Nível de Complexidade:",
+          [
+              "N1 - Fácil / Rápido",
+              "N2 - Intermediário",
+              "N3 - Avançado / Laboratório",
+          ],
+      )
 
-        in_prob = st.text_input("Problema (Sintoma):", placeholder="Ex: Catraca trava comunicação ao autenticar facial")
-        in_files_prob = st.file_uploader("📎 Imagens ou Arquivos do Problema (Sintoma):", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key="cad_prob_files")
-        
-        in_motivo = st.text_area("Motivo (Causa Raiz):", placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada")
-        
-        st.markdown("---")
-        st.markdown("### 🛠️ Passos da Solução")
-        st.caption("Adicione os procedimentos necessários para resolver o problema.")
-        
-        passos_novos_lista = []
-        for p_idx in range(1, 4):
-            st.markdown(f"**Passo {p_idx}**")
-            col_p_txt, col_p_file = st.columns([2, 1])
-            with col_p_txt:
-                txt_p = st.text_area(f"Descrição do Passo {p_idx}:", placeholder=f"Ex: {p_idx}° Faça tal procedimento...", key=f"cad_p_txt_{p_idx}")
-            with col_p_file:
-                files_p = st.file_uploader(f"Anexos Passo {p_idx}", type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"], accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
-            
-            if txt_p.strip():
-                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
-                passos_novos_lista.append({
-                    "passo": p_idx,
-                    "texto": txt_p.strip(),
-                    "anexo": url_anexo_p
-                })
-        
-        if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
-            if in_prob and in_motivo and passos_novos_lista:
-                json_solucao = json.dumps(passos_novos_lista)
-                url_anexo_prob = upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
-                
-                dados = {
-                    "sistema": in_sist,
-                    "equipamento": in_hw,
-                    "problema": in_prob,
-                    "motivo": in_motivo,
-                    "solucao": json_solucao,
-                    "status": in_status,
-                    "nivel": in_nivel,
-                    "anexo_url": url_anexo_prob
-                }
-                if salvar_ocorrencia_db(dados, DEFAULT_USER_EMAIL):
-                    st.toast("Tratativa salva com sucesso!", icon="🎉")
-                    st.rerun()
-            else:
-                st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
+    in_prob = st.text_input(
+        "Problema (Sintoma):",
+        placeholder="Ex: Catraca trava comunicação ao autenticar facial",
+    )
+    in_files_prob = st.file_uploader(
+        "📎 Imagens ou Arquivos do Problema (Sintoma):",
+        type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "xlsx", "csv", "zip"],
+        accept_multiple_files=True,
+        key="cad_prob_files",
+    )
+
+    in_motivo = st.text_area(
+        "Motivo (Causa Raiz):",
+        placeholder="Ex: Conflito de IPs na rede do cliente ou porta bloqueada",
+    )
+
+    st.markdown("---")
+    st.markdown("### 🛠️ Passos da Solução")
+    st.caption("Adicione os procedimentos necessários para resolver o problema.")
+
+    passos_novos_lista = []
+    for p_idx in range(1, 4):
+      st.markdown(f"**Passo {p_idx}**")
+      col_p_txt, col_p_file = st.columns([2, 1])
+      with col_p_txt:
+        txt_p = st.text_area(
+            f"Descrição do Passo {p_idx}:",
+            placeholder=f"Ex: {p_idx}° Faça tal procedimento...",
+            key=f"cad_p_txt_{p_idx}",
+        )
+      with col_p_file:
+        files_p = st.file_uploader(
+            f"Anexos Passo {p_idx}",
+            type=[
+                "png",
+                "jpg",
+                "jpeg",
+                "pdf",
+                "txt",
+                "docx",
+                "xlsx",
+                "csv",
+                "zip",
+            ],
+            accept_multiple_files=True,
+            key=f"cad_p_file_{p_idx}",
+        )
+
+      if txt_p.strip():
+        url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
+        passos_novos_lista.append({
+            "passo": p_idx,
+            "texto": txt_p.strip(),
+            "anexo": url_anexo_p,
+        })
+
+    if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
+      if in_prob and in_motivo and passos_novos_lista:
+        json_solucao = json.dumps(passos_novos_lista)
+        url_anexo_prob = (
+            upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
+        )
+        autor_reg = (
+            st.session_state.user.email
+            if st.session_state.user
+            else "visitante@actuar.group"
+        )
+
+        dados = {
+            "sistema": in_sist,
+            "equipamento": in_hw,
+            "problema": in_prob,
+            "motivo": in_motivo,
+            "solucao": json_solucao,
+            "status": in_status,
+            "nivel": in_nivel,
+            "anexo_url": url_anexo_prob,
+        }
+        if salvar_ocorrencia_db(dados, autor_reg):
+          st.toast("Tratativa salva com sucesso!", icon="🎉")
+          st.rerun()
+      else:
+        st.error(
+            "Preencha o problema, o motivo e ao menos o Passo 1 da solução."
+        )
 
 # ==========================================
 # ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
-indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
-with tabs[indice_export]:
+if (
+    st.session_state.user_role == "Admin"
+    and "📥 Importar & Exportar (TXT)" in abas_navegacao
+):
+  indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
+  with tabs[indice_export]:
     st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-    st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico (ou apenas os filtrados).")
-    
+    st.caption(
+        "Importe ocorrências em lote através de um arquivo `.TXT` estruturado"
+        " ou baixe todo o histórico (ou apenas os filtrados)."
+    )
+
     st.markdown("### 📤 Importar Ocorrências em Lote")
     with st.form("form_import_txt"):
-        arquivo_txt = st.file_uploader("Selecione o arquivo .TXT estruturado:", type=["txt"])
-        submitted_import = st.form_submit_button("🚀 Processar e Importar Ocorrências")
-        if submitted_import:
-            if arquivo_txt is not None:
-                qtd = processar_importacao_txt(arquivo_txt.getvalue(), DEFAULT_USER_EMAIL)
-                if qtd > 0:
-                    st.success(f"{qtd} ocorrências foram importadas com sucesso!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("Nenhuma ocorrência válida encontrada.")
-            else:
-                st.warning("Envie um arquivo .TXT válido.")
-    
+      arquivo_txt = st.file_uploader(
+          "Selecione o arquivo .TXT estruturado:", type=["txt"]
+      )
+      submitted_import = st.form_submit_button(
+          "🚀 Processar e Importar Ocorrências"
+      )
+      if submitted_import:
+        if arquivo_txt is not None:
+          qtd = processar_importacao_txt(
+              arquivo_txt.getvalue(), st.session_state.user.email
+          )
+          if qtd > 0:
+            st.success(f"{qtd} ocorrências foram importadas com sucesso!")
+            time.sleep(1)
+            st.rerun()
+          else:
+            st.warning("Nenhuma ocorrência válida encontrada.")
+        else:
+          st.warning("Envie um arquivo .TXT válido.")
+
     st.markdown("---")
     st.markdown("### 📥 Exportar Base de Dados")
     if df_ocorrencias.empty:
-        st.info("O banco de dados está vazio.")
+      st.info("O banco de dados está vazio.")
     else:
-        tipo_export = st.radio(
-            "Selecione o escopo da exportação:",
-            ["Base Completa", "Apenas Resultados Filtrados (aba Diagnósticos)"],
-            horizontal=True
-        )
-        
-        df_para_exportar = df_ocorrencias if tipo_export == "Base Completa" else st.session_state.get("df_filtered", df_ocorrencias)
-        
-        st.info(f"Total de registros incluídos nesta exportação: **{len(df_para_exportar)}**")
-        
-        conteudo_txt = ""
-        for _, row in df_para_exportar.iterrows():
-            conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
-            conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
-            conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
-            conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
-            conteudo_txt += "-" * 50 + "\n\n"
-            
-        nome_arquivo_download = "base_conhecimento_actuar_filtrada.txt" if tipo_export != "Base Completa" else "base_conhecimento_actuar.txt"
-        
-        st.download_button(
-            label=f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)} registros)",
-            data=conteudo_txt,
-            file_name=nome_arquivo_download,
-            mime="text/plain"
-        )
+      tipo_export = st.radio(
+          "Selecione o escopo da exportação:",
+          [
+              "Base Completa",
+              "Apenas Resultados Filtrados (aba Diagnósticos)",
+          ],
+          horizontal=True,
+      )
+
+      df_para_exportar = (
+          df_ocorrencias
+          if tipo_export == "Base Completa"
+          else st.session_state.get("df_filtered", df_ocorrencias)
+      )
+
+      st.info(
+          "Total de registros incluídos nesta exportação:"
+          f" **{len(df_para_exportar)}**"
+      )
+
+      conteudo_txt = ""
+      for _, row in df_para_exportar.iterrows():
+        conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
+        conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
+        conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
+        conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
+        conteudo_txt += "-" * 50 + "\n\n"
+
+      nome_arquivo_download = (
+          "base_conhecimento_actuar_filtrada.txt"
+          if tipo_export != "Base Completa"
+          else "base_conhecimento_actuar.txt"
+      )
+
+      st.download_button(
+          label=(
+              f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)}"
+              " registros)"
+          ),
+          data=conteudo_txt,
+          file_name=nome_arquivo_download,
+          mime="text/plain",
+      )
 
 # ==========================================
 # ABA 7: AUDIT LOG
 # ==========================================
-indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
-with tabs[indice_audit]:
+if (
+    st.session_state.user_role == "Admin"
+    and "📜 Audit Log (Gestão)" in abas_navegacao
+):
+  indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
+  with tabs[indice_audit]:
     st.subheader("📜 Histórico de Auditoria (Audit Log)")
-    st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
-    
+    st.caption("Acompanhe todas as interações e alterações realizadas.")
+
     try:
-        res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-        df_logs = pd.DataFrame(res_logs.data)
-        if not df_logs.empty:
-            st.dataframe(
-                df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
-                column_config={
-                    "created_at": "Data/Hora",
-                    "usuario_email": "Usuário",
-                    "acao": "Ação",
-                    "detalhes": "Detalhamento"
-                },
-                use_container_width=True
-            )
-        else:
-            st.info("Nenhum histórico registrado no momento.")
+      res_logs = (
+          supabase.table("audit_logs")
+          .select("*")
+          .order("id", desc=True)
+          .limit(100)
+          .execute()
+      )
+      df_logs = pd.DataFrame(res_logs.data)
+      if not df_logs.empty:
+        st.dataframe(
+            df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
+            column_config={
+                "created_at": "Data/Hora",
+                "usuario_email": "Usuário",
+                "acao": "Ação",
+                "detalhes": "Detalhamento",
+            },
+            use_container_width=True,
+        )
+      else:
+        st.info("Nenhum histórico registrado no momento.")
     except Exception as e:
-        st.error(f"Erro ao carregar log: {e}")
+      st.error(f"Erro ao carregar log: {e}")
