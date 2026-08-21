@@ -505,7 +505,7 @@ for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status",
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS (COM A ABA "MODO TV" ADICIONADA)[cite: 2]
+# CRIAÇÃO DAS ABAS
 abas_navegacao = ["📋 Diagnósticos", "📺 Modo TV", "⭐ Meus Favoritos", "➕ Cadastrar Tratativa"]
 if st.session_state.user_role == "Admin":
     abas_navegacao.append("📥 Importar & Exportar (TXT)")
@@ -515,26 +515,27 @@ tabs = st.tabs(abas_navegacao)
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
     if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
-        st.markdown("📎 **Evidências do Problema (Sintoma):**")
         urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
         urls_problema = list(dict.fromkeys(urls_problema))
         
-        for idx_prob, url_file in enumerate(urls_problema):
-            nome_arquivo = url_file.split("/")[-1].split("?")[0]
-            if "_" in nome_arquivo:
-                partes_nome = nome_arquivo.split("_", 2)
-                nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-            else:
-                nome_exibicao = nome_arquivo
-                
-            extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-            if url_file.lower().endswith(extensoes_imagem):
-                try:
-                    st.image(url_file, width=450, caption=f"Imagem do Problema {idx_prob + 1}: {nome_exibicao}")
-                except Exception:
-                    st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-            else:
-                st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+        if urls_problema:
+            with st.expander(f"📎 Ver Evidências do Problema (Sintoma) — {len(urls_problema)} arquivo(s)", expanded=False):
+                for idx_prob, url_file in enumerate(urls_problema):
+                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                    if "_" in nome_arquivo:
+                        partes_nome = nome_arquivo.split("_", 2)
+                        nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                    else:
+                        nome_exibicao = nome_arquivo
+                        
+                    extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                    if url_file.lower().endswith(extensoes_imagem):
+                        try:
+                            st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
+                        except Exception:
+                            st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+                    else:
+                        st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
         st.markdown("---")
 
     passos = []
@@ -557,22 +558,24 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
                 urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
                 urls_passo = list(dict.fromkeys(urls_passo))
                 
-                for idx_f, url_file in enumerate(urls_passo):
-                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                    if "_" in nome_arquivo:
-                        partes_nome = nome_arquivo.split("_", 2)
-                        nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
-                    else:
-                        nome_exibicao = nome_arquivo
-                        
-                    extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-                    if url_file.lower().endswith(extensoes_imagem):
-                        try:
-                            st.image(url_file, width=450, caption=f"Evidência {idx_f + 1} do Passo {num_passo}: {nome_exibicao}")
-                        except Exception:
-                            st.markdown(f"📥 Baixar Arquivo {idx_f + 1} do Passo {num_passo}: [**{nome_exibicao}**]({url_file})")
-                    else:
-                        st.markdown(f"📄 Arquivo {idx_f + 1} do Passo {num_passo}: [**{nome_exibicao}**]({url_file})")
+                if urls_passo:
+                    with st.expander(f"📷 Ver Anexos do Passo {num_passo} — {len(urls_passo)} arquivo(s)", expanded=False):
+                        for idx_f, url_file in enumerate(urls_passo):
+                            nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                            if "_" in nome_arquivo:
+                                partes_nome = nome_arquivo.split("_", 2)
+                                nome_exibicao = partes_nome[-1] if len(partes_nome) > 2 else nome_arquivo
+                            else:
+                                nome_exibicao = nome_arquivo
+                                
+                            extensoes_imagem = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+                            if url_file.lower().endswith(extensoes_imagem):
+                                try:
+                                    st.image(url_file, width=450, caption=f"Evidência {idx_f + 1} - Passo {num_passo}: {nome_exibicao}")
+                                except Exception:
+                                    st.markdown(f"📥 Baixar Arquivo {idx_f + 1}: [**{nome_exibicao}**]({url_file})")
+                            else:
+                                st.markdown(f"📄 Arquivo {idx_f + 1}: [**{nome_exibicao}**]({url_file})")
             st.markdown("")
     else:
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
@@ -615,6 +618,9 @@ with tabs[indice_diag]:
                     df_filtered["motivo"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True) |
                     df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
                 ]
+
+    # Salva o dataframe filtrado no session_state para uso na exportação
+    st.session_state.df_filtered = df_filtered
 
     if df_filtered.empty:
         st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
@@ -872,7 +878,7 @@ with tabs[indice_diag]:
                             st.rerun()
 
 # ==========================================
-# ABA 2: MODO TV (PAINEL DE MONITORAMENTO)[cite: 2]
+# ABA 2: MODO TV (PAINEL DE MONITORAMENTO)
 # ==========================================
 indice_tv = abas_navegacao.index("📺 Modo TV")
 with tabs[indice_tv]:
@@ -1020,13 +1026,13 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, o motivo e ao menos o Passo 1 da solução.")
 
 # ==========================================
-# ABA 5: IMPORTAR & EXPORTAR BANCO EM TXT
+# ABA 5: IMPORTAR & EXPORTAR BANCO EM TXT (ATUALIZADO PARA FILTRADOS)
 # ==========================================
 if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in abas_navegacao:
     indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
     with tabs[indice_export]:
         st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
-        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico.")
+        st.caption("Importe ocorrências em lote através de um arquivo `.TXT` estruturado ou baixe todo o histórico (ou apenas os filtrados).")
         
         st.markdown("### 📤 Importar Ocorrências em Lote")
         with st.form("form_import_txt"):
@@ -1045,22 +1051,34 @@ if st.session_state.user_role == "Admin" and "📥 Importar & Exportar (TXT)" in
                     st.warning("Envie um arquivo .TXT válido.")
         
         st.markdown("---")
-        st.markdown("### 📥 Exportar Base Completa")
+        st.markdown("### 📥 Exportar Base de Dados")
         if df_ocorrencias.empty:
             st.info("O banco de dados está vazio.")
         else:
+            tipo_export = st.radio(
+                "Selecione o escopo da exportação:",
+                ["Base Completa", "Apenas Resultados Filtrados (aba Diagnósticos)"],
+                horizontal=True
+            )
+            
+            df_para_exportar = df_ocorrencias if tipo_export == "Base Completa" else st.session_state.get("df_filtered", df_ocorrencias)
+            
+            st.info(f"Total de registros incluídos nesta exportação: **{len(df_para_exportar)}**")
+            
             conteudo_txt = ""
-            for _, row in df_ocorrencias.iterrows():
+            for _, row in df_para_exportar.iterrows():
                 conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
                 conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
                 conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
                 conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
                 conteudo_txt += "-" * 50 + "\n\n"
                 
+            nome_arquivo_download = "base_conhecimento_actuar_filtrada.txt" if tipo_export != "Base Completa" else "base_conhecimento_actuar.txt"
+            
             st.download_button(
-                label="📥 Baixar Banco de Dados Completo em TXT",
+                label=f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)} registros)",
                 data=conteudo_txt,
-                file_name="base_conhecimento_actuar.txt",
+                file_name=nome_arquivo_download,
                 mime="text/plain"
             )
 
