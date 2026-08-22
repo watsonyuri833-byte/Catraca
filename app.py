@@ -555,6 +555,99 @@ def buscar_melhor_solucao_copilot(query, df):
 
 
 # ==========================================
+# ESTRUTURA DE DADOS: FLUXOS DE DIAGNÓSTICO
+# ==========================================
+FLUXOS_DIAGNOSTICO = {
+    "🌐 Falha de Comunicação / IP": {
+        "pergunta": "O equipamento está pingando na rede local?",
+        "opcoes": {
+            "Não responde ao ping (Timeout)": {
+                "causa": "Cabo de rede desconectado, porta do switch queimada ou IP duplicado na rede.",
+                "solucao": (
+                    "1. Verifique fisicamente o cabo RJ45 na placa principal.\n2."
+                    " Teste a porta do switch.\n3. Confirme se o IP configurado"
+                    " na catraca não está em uso por outro dispositivo."
+                ),
+                "peca": "Cabo de rede / Placa de rede (LAN)",
+            },
+            "Responde ao ping, mas o software não conecta": {
+                "causa": "Porta de comunicação fechada no firewall do Windows ou serviço de socket parado.",
+                "solucao": (
+                    "1. Verifique se a porta padrão de comunicação está liberada"
+                    " no Firewall.\n2. Reinicie o serviço do gerenciador de"
+                    " acesso no servidor."
+                ),
+                "peca": "Nenhuma (Ajuste de Software)",
+            },
+            "Não sei / Outro sintoma": {
+                "causa": "Oscilação severa na rede do cliente ou problema na fonte de alimentação da placa.",
+                "solucao": (
+                    "1. Meça a tensão da fonte principal com um multímetro (deve"
+                    " estar estável em 12V/24V).\n2. Troque a fonte de"
+                    " teste."
+                ),
+                "peca": "Fonte de Alimentação Chaveada",
+            },
+        },
+    },
+    "👁️ Falha no Leitor Facial / Biométrico": {
+        "pergunta": "Qual o comportamento do leitor biométrico/facial?",
+        "opcoes": {
+            "Tela preta / Não liga absolutamente nada": {
+                "causa": "Ausência de alimentação 12V chegando no borne do leitor ou cabo flat solto.",
+                "solucao": (
+                    "1. Cheque as conexões de energia direto na placa do leitor."
+                    "\n2. Verifique se o disjuntor ou fonte dedicada está"
+                    " entregando carga."
+                ),
+                "peca": "Cabo de alimentação / Módulo leitor",
+            },
+            "Liga, mas trava na leitura ou dá erro de DLL/Firmware": {
+                "causa": "Corrupção de banco de dados local do leitor ou versão de firmware incompatível.",
+                "solucao": (
+                    "1. Realize o reset lógico de fábrica pelo menu da catraca."
+                    "\n2. Reenvie as templates/cadastros através do sistema"
+                    " principal."
+                ),
+                "peca": "Placa leitora (se persistir após reset)",
+            },
+            "Leitura lenta ou falha constante em catracas de alto fluxo": {
+                "causa": "Acúmulo de cache ou sujeira na lente/sensor do equipamento.",
+                "solucao": (
+                    "1. Faça a limpeza física do sensor com pano adequado.\n2."
+                    " Reinicie o hardware para limpar o cache de processamento."
+                ),
+                "peca": "Kit de Limpeza / Módulo Óptico",
+            },
+        },
+    },
+    "⚙️ Problema Mecânico / Giro da Catraca": {
+        "pergunta": "Como a catraca está se comportando mecanicamente?",
+        "opcoes": {
+            "Braço travado nos dois sentidos (não libera)": {
+                "causa": "Solenoide queimada, sem pulso elétrico da placa controladora ou trava mecânica emperrada.",
+                "solucao": (
+                    "1. Teste o acionamento manual do solenoide.\n2. Verifique"
+                    " se o relé da placa principal está enviando o pulso de"
+                    " liberação."
+                ),
+                "peca": "Solenoide de travamento / Placa Controladora",
+            },
+            "Braço solto (gira livremente sem travar)": {
+                "causa": "Desgaste ou quebra da mola de retenção, êmbolo travado ou solenoide desencaixada.",
+                "solucao": (
+                    "1. Abra a tampa superior e inspecione o conjunto"
+                    " mecânico.\n2. Verifique se a mola de retorno saltou do"
+                    " eixo."
+                ),
+                "peca": "Kit mola / Êmbolo / Conjunto Mecânico",
+            },
+        },
+    },
+}
+
+
+# ==========================================
 # 3. CONTROLE DE SESSÃO E SIDEBAR LIMPA
 # ==========================================
 if "favoritos" not in st.session_state:
@@ -641,6 +734,7 @@ for col in [
 # CRIAÇÃO DAS ABAS
 abas_navegacao = [
     "📋 Diagnósticos",
+    "⚡ Guia Interativo",
     "🤖 Copilot IA",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -1215,6 +1309,52 @@ with tabs[indice_diag]:
           if sucesso:
             st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
             st.rerun()
+
+# ==========================================
+# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (FLUXOGRAMA)
+# ==========================================
+indice_fluxo = abas_navegacao.index("⚡ Guia Interativo")
+with tabs[indice_fluxo]:
+  st.subheader("⚡ Guia Interativo de Diagnóstico Rápido")
+  st.markdown(
+      "Selecione a categoria do problema abaixo para iniciar o roteiro de"
+      " triagem guiada:"
+  )
+
+  categoria_escolhida = st.selectbox(
+      "Escolha o módulo afetado:", list(FLUXOS_DIAGNOSTICO.keys())
+  )
+
+  if categoria_escolhida:
+    fluxo = FLUXOS_DIAGNOSTICO[categoria_escolhida]
+
+    st.markdown("---")
+    st.markdown(f"### ❓ Etapa de Triagem: {fluxo['pergunta']}")
+
+    opcao_selecionada = st.radio(
+        "Selecione o cenário que melhor descreve o problema do cliente:",
+        list(fluxo["opcoes"].keys()),
+        key=f"radio_{categoria_escolhida}",
+    )
+
+    if opcao_selecionada:
+      detalhes = fluxo["opcoes"][opcao_selecionada]
+
+      st.markdown("---")
+      st.markdown("### 🛠️ Diagnóstico e Solução Recomendada")
+
+      col_d1, col_d2 = st.columns([2, 1])
+      with col_d1:
+        st.error(f"**Causa Raiz Mais Provável:**\n{detalhes['causa']}")
+        st.success(f"**Procedimento de Correção:**\n{detalhes['solucao']}")
+      with col_d2:
+        st.warning(
+            f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes['peca']}**"
+        )
+        st.info(
+            "💡 *Dica:* Se este procedimento resolver, cadastre a ocorrência na"
+            " aba de Tratativas para enriquecer a base!"
+        )
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
