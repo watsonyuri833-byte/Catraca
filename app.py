@@ -621,99 +621,6 @@ def buscar_melhor_solucao_copilot(query, df_ocorrencias, df_manuais):
 
 
 # ==========================================
-# ESTRUTURA DE DADOS: FLUXOS DE DIAGNÓSTICO
-# ==========================================
-FLUXOS_DIAGNOSTICO = {
-    "🌐 Falha de Comunicação / IP": {
-        "pergunta": "Descreva o comportamento ou sintoma de comunicação/rede:",
-        "opcoes": {
-            "Não responde ao ping (Timeout)": {
-                "causa": "Cabo de rede desconectado, porta do switch queimada ou IP duplicado na rede.",
-                "solucao": (
-                    "1. Verifique fisicamente o cabo RJ45 na placa principal.\n2."
-                    " Teste a porta do switch.\n3. Confirme se o IP configurado"
-                    " na catraca não está em uso por outro dispositivo."
-                ),
-                "peca": "Cabo de rede / Placa de rede (LAN)",
-            },
-            "Responde ao ping, mas o software não conecta": {
-                "causa": "Porta de comunicação fechada no firewall do Windows ou serviço de socket parado.",
-                "solucao": (
-                    "1. Verifique se a porta padrão de comunicação está liberada"
-                    " no Firewall.\n2. Reinicie o serviço do gerenciador de"
-                    " acesso no servidor."
-                ),
-                "peca": "Nenhuma (Ajuste de Software)",
-            },
-            "Não sei / Outro sintoma": {
-                "causa": "Oscilação severa na rede do cliente ou problema na fonte de alimentação da placa.",
-                "solucao": (
-                    "1. Meça a tensão da fonte principal com um multímetro (deve"
-                    " estar estável em 12V/24V).\n2. Troque a fonte de"
-                    " teste."
-                ),
-                "peca": "Fonte de Alimentação Chaveada",
-            },
-        },
-    },
-    "👁️ Falha no Leitor Facial / Biométrico": {
-        "pergunta": "Descreva o comportamento do leitor biométrico/facial:",
-        "opcoes": {
-            "Tela preta / Não liga absolutamente nada": {
-                "causa": "Ausência de alimentação 12V chegando no borne do leitor ou cabo flat solto.",
-                "solucao": (
-                    "1. Cheque as conexões de energia direto na placa do leitor."
-                    "\n2. Verifique se o disjuntor ou fonte dedicada está"
-                    " entregando carga."
-                ),
-                "peca": "Cabo de alimentação / Módulo leitor",
-            },
-            "Liga, mas trava na leitura ou dá erro de DLL/Firmware": {
-                "causa": "Corrupção de banco de dados local do leitor ou versão de firmware incompatível.",
-                "solucao": (
-                    "1. Realize o reset lógico de fábrica pelo menu da catraca."
-                    "\n2. Reenvie as templates/cadastros através do sistema"
-                    " principal."
-                ),
-                "peca": "Placa leitora (se persistir após reset)",
-            },
-            "Leitura lenta ou falha constante em catracas de alto fluxo": {
-                "causa": "Acúmulo de cache ou sujeira na lente/sensor do equipamento.",
-                "solucao": (
-                    "1. Faça a limpeza física do sensor com pano adequado.\n2."
-                    " Reinicie o hardware para limpar o cache de processamento."
-                ),
-                "peca": "Kit de Limpeza / Módulo Óptico",
-            },
-        },
-    },
-    "⚙️ Problema Mecânico / Giro da Catraca": {
-        "pergunta": "Descreva o comportamento mecânico da catraca:",
-        "opcoes": {
-            "Braço travado nos dois sentidos (não libera)": {
-                "causa": "Solenoide queimada, sem pulso elétrico da placa controladora ou trava mecânica emperrada.",
-                "solucao": (
-                    "1. Teste o acionamento manual do solenoide.\n2. Verifique"
-                    " se o relé da placa principal está enviando o pulso de"
-                    " liberação."
-                ),
-                "peca": "Solenoide de travamento / Placa Controladora",
-            },
-            "Braço solto (gira livremente sem travar)": {
-                "causa": "Desgaste ou quebra da mola de retenção, êmbolo travado ou solenoide desencaixada.",
-                "solucao": (
-                    "1. Abra a tampa superior e inspecione o conjunto"
-                    " mecânico.\n2. Verifique se a mola de retorno saltou do"
-                    " eixo."
-                ),
-                "peca": "Kit mola / Êmbolo / Conjunto Mecânico",
-            },
-        },
-    },
-}
-
-
-# ==========================================
 # 3. CONTROLE DE SESSÃO E SIDEBAR LIMPA
 # ==========================================
 if "favoritos" not in st.session_state:
@@ -1383,92 +1290,93 @@ with tabs[indice_diag]:
             st.rerun()
 
 # ==========================================
-# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (FLUXOGRAMA POR DESCRIÇÃO)
+# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (INTELLIGENT DB SEARCH)
 # ==========================================
 indice_fluxo = abas_navegacao.index("⚡ Guia Interativo")
 with tabs[indice_fluxo]:
-  st.subheader("⚡ Guia Interativo de Diagnóstico por Descrição")
+  st.subheader("⚡ Guia Interativo Inteligente (Análise via Base de Manuais e Tratativas)")
   st.markdown(
-      "Selecione o módulo afetado e **descreva com suas palavras** o comportamento ou sintoma. O sistema analisará o texto inserido e indicará a causa raiz, a solução e a peça correspondente."
+      "Descreva com suas palavras o cenário ou problema da catraca/sistema. "
+      "O sistema consultará **automaticamente o seu banco de dados de manuais e ocorrências** para trazer o diagnóstico exato baseado nos seus registros!"
   )
 
-  categoria_escolhida = st.selectbox(
-      "Escolha o módulo afetado:", list(FLUXOS_DIAGNOSTICO.keys()), key="select_modulo_guia"
-  )
-
-  if categoria_escolhida:
-    fluxo = FLUXOS_DIAGNOSTICO[categoria_escolhida]
-
-    st.markdown("---")
-    st.markdown(f"### ✍️ {fluxo['pergunta']}")
-
-    texto_usuario_guia = st.text_input(
-        "Digite a descrição do cenário ou problema:",
-        placeholder="Ex: braço travado nos dois sentidos, cabo desconectado, não libera...",
-        key=f"input_descricao_guia_{categoria_escolhida}"
+  col_g1, col_g2 = st.columns([1, 2])
+  with col_g1:
+    sist_guia_opt = ["Todos os Sistemas"] + LISTA_SISTEMA
+    filtro_sist_guia = st.selectbox(
+        "Filtrar por Sistema (Opcional):", sist_guia_opt, key="guia_filtro_sist"
+    )
+  with col_g2:
+    texto_guia_input = st.text_input(
+        "Descreva o comportamento, sintoma ou dúvida:",
+        placeholder="Ex: braço travado, erro de DLL, falha de comunicação, IP...",
+        key="guia_input_descricao_livre",
     )
 
-    if texto_usuario_guia:
-      texto_lower = texto_usuario_guia.lower()
-      palavras_query = [p.lower() for p in re.findall(r'\w+', texto_lower) if len(p) > 2]
-      
-      melhor_opcao_nome = None
-      detalhes = None
-      maior_pontuacao = -1
+  if texto_guia_input:
+    df_manuais_local = df_manuais.copy()
+    if (
+        filtro_sist_guia != "Todos os Sistemas"
+        and not df_manuais_local.empty
+        and "sistema_produto" in df_manuais_local.columns
+    ):
+      df_manuais_local = df_manuais_local[
+          df_manuais_local["sistema_produto"] == filtro_sist_guia
+      ]
 
-      for nome_op, det in fluxo["opcoes"].items():
-        score = 0
-        texto_comparacao = f"{nome_op} {det.get('causa', '')} {det.get('solucao', '')} {det.get('peca', '')}".lower()
-        
-        if texto_lower in texto_comparacao:
-          score += 30
-          
-        for p in palavras_query:
-          if p in texto_comparacao:
-            if p in nome_op.lower():
-              score += 10
-            else:
-              score += 2
-              
-        if score > maior_pontuacao:
-          maior_pontuacao = score
-          melhor_opcao_nome = nome_op
-          detalhes = det
+    df_ocor_local = df_ocorrencias.copy()
+    if (
+        filtro_sist_guia != "Todos os Sistemas"
+        and not df_ocor_local.empty
+        and "sistema" in df_ocor_local.columns
+    ):
+      df_ocor_local = df_ocor_local[df_ocor_local["sistema"] == filtro_sist_guia]
 
-      st.markdown("---")
-      st.markdown("### 🛠️ Diagnóstico Analisado pelo Sistema")
+    match_ocor, match_man = buscar_melhor_solucao_copilot(
+        texto_guia_input, df_ocor_local, df_manuais_local
+    )
 
-      if maior_pontuacao > 0 and detalhes:
-        st.info(f"🔎 **Cenário Identificado:** *{melhor_opcao_nome}*")
-        
-        col_d1, col_d2 = st.columns([2, 1])
-        with col_d1:
-          st.error(f"**Causa Raiz Mais Provável:**\n{detalhes['causa']}")
-          st.success(f"**Procedimento de Correção:**\n{detalhes['solucao']}")
-        with col_d2:
-          st.warning(
-              f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes['peca']}**"
-          )
-          st.info(
-              "💡 *Dica:* Se este procedimento resolver, cadastre a ocorrência na"
-              " aba de Tratativas para enriquecer a base!"
-          )
-      else:
-        primeira_chave = list(fluxo["opcoes"].keys())[0]
-        detalhes_fb = fluxo["opcoes"][primeira_chave]
-        st.warning("⚠️ Não encontramos uma correspondência exata para os termos digitados, mas aqui está a recomendação mais próxima:")
-        st.info(f"🔎 **Cenário Base:** *{primeira_chave}*")
-        
-        col_d1, col_d2 = st.columns([2, 1])
-        with col_d1:
-          st.error(f"**Causa Raiz Mais Provável:**\n{detalhes_fb['causa']}")
-          st.success(f"**Procedimento de Correção:**\n{detalhes_fb['solucao']}")
-        with col_d2:
-          st.warning(
-              f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes_fb['peca']}**"
-          )
+    st.markdown("---")
+    st.markdown("### 🔍 Resultados Analisados no seu Banco de Dados")
+
+    if match_man or match_ocor:
+      if match_man:
+        st.markdown("#### 📚 Manuais e Documentações Oficiais Encontradas:")
+        for m in match_man:
+          with st.container(border=True):
+            st.markdown(
+                f"**📖 [Manual ID #{m.get('id')}] {m.get('titulo')}**"
+            )
+            st.caption(
+                f"Sistema: {m.get('sistema_produto')} | Hardware:"
+                f" {m.get('hardware')}"
+            )
+            st.markdown(f"**Conteúdo / Regras Analisadas:**")
+            st.info(m.get("conteudo"))
+
+      if match_ocor:
+        st.markdown("#### 🚨 Ocorrências e Tratativas Compatíveis:")
+        for m in match_ocor:
+          with st.container(border=True):
+            st.markdown(f"**📌 [Chamado ID #{m['id']}] {m['problema']}**")
+            st.caption(
+                f"Sistema: {m.get('sistema')} | Hardware:"
+                f" {m.get('equipamento')} | Status: {m.get('status')}"
+            )
+            st.markdown(f"**Motivo / Causa Raiz:** {m.get('motivo')}")
+            renderizar_solucao_estruturada(m.get("solucao"), m.get("anexo_url"))
     else:
-      st.caption("💡 Digite acima o sintoma ou comportamento para que o sistema analise e exiba o diagnóstico correspondente.")
+      st.warning(
+          "⚠️ Nenhuma correspondência direta encontrada na sua base de manuais ou"
+          " ocorrências para esta descrição. Tente usar outras palavras-chave ou"
+          " cadastre as orientações na aba de **Manuais & Produtos**."
+      )
+  else:
+    st.info(
+        "💡 Digite uma descrição no campo acima para que o sistema vasculhe os"
+        " seus manuais e ocorrências cadastrados no banco de dados e traga o"
+        " diagnóstico em tempo real."
+    )
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE COM MANUAIS)
@@ -1610,8 +1518,8 @@ with tabs[indice_manuais]:
         }
         if salvar_manual_db(dados_manual, "tecnico@actuar.group"):
           st.toast(
-              "Manual cadastrado com sucesso! O Copilot já está com acesso a"
-              " ele.",
+              "Manual cadastrado com sucesso! O Guia Interativo e o Copilot"
+              " já estão com acesso a ele.",
               icon="🎉",
           )
           st.rerun()
