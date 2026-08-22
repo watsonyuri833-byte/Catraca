@@ -165,6 +165,21 @@ def buscar_ocorrencias_db():
   return pd.DataFrame(res.data)
 
 
+def buscar_manuais_db():
+  if not supabase:
+    return pd.DataFrame()
+  try:
+    res = (
+        supabase.table("manuais_produto")
+        .select("*")
+        .order("id", desc=True)
+        .execute()
+    )
+    return pd.DataFrame(res.data)
+  except Exception:
+    return pd.DataFrame()
+
+
 def registrar_log(usuario_email, acao, detalhes):
   if not supabase:
     return
@@ -194,6 +209,36 @@ def salvar_ocorrencia_db(dados, usuario_email):
     return True
   except Exception as e:
     st.error(f"Erro ao salvar no Supabase: {e}")
+    return False
+
+
+def salvar_manual_db(dados, usuario_email):
+  try:
+    dados_limpos = limpar_dados_para_json(dados)
+    supabase.table("manuais_produto").insert(dados_limpos).execute()
+    registrar_log(
+        usuario_email,
+        "MANUAL_CRIADO",
+        f"Cadastrou manual técnico: {dados.get('titulo')}",
+    )
+    return True
+  except Exception as e:
+    st.error(
+        f"Erro ao salvar manual (Verifique se a tabela 'manuais_produto' foi"
+        f" criada no Supabase): {e}"
+    )
+    return False
+
+
+def deletar_manual_db(manual_id, usuario_email):
+  try:
+    supabase.table("manuais_produto").delete().eq("id", manual_id).execute()
+    registrar_log(
+        usuario_email, "MANUAL_EXCLUIDO", f"Excluiu o manual ID #{manual_id}"
+    )
+    return True
+  except Exception as e:
+    st.error(f"Erro ao excluir manual: {e}")
     return False
 
 
@@ -464,11 +509,11 @@ def upload_multiplos_arquivos(files):
 
 
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (DINÂMICO E FLEXÍVEL)
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (OCORRÊNCIAS + MANUAIS)
 # ==========================================
-def buscar_melhor_solucao_copilot(query, df):
-  if df.empty or not query:
-    return []
+def buscar_melhor_solucao_copilot(query, df_ocorrencias, df_manuais):
+  if not query:
+    return [], []
 
   query_lower = query.lower().strip()
   stopwords = {
@@ -524,34 +569,55 @@ def buscar_melhor_solucao_copilot(query, df):
   if not palavras_query:
     palavras_query = re.findall(r"\w+", query_lower)
 
-  resultados = []
-  for _, row in df.iterrows():
-    texto_base = (
-        f"{row.get('problema', '')} {row.get('motivo', '')}"
-        f" {row.get('equipamento', '')} {row.get('sistema', '')}"
-        f" {row.get('solucao', '')}"
-    ).lower()
-    score = 0
+  # 1. Buscar nas Ocorrências
+  resultados_ocorrencias = []
+  if not df_ocorrencias.empty:
+    for _, row in df_ocorrencias.iterrows():
+      texto_base = (
+          f"{row.get('problema', '')} {row.get('motivo', '')}"
+          f" {row.get('equipamento', '')} {row.get('sistema', '')}"
+          f" {row.get('solucao', '')}"
+      ).lower()
+      score = 0
+      if query_lower in texto_base:
+        score += 15
+      for p in palavras_query:
+        if p in texto_base:
+          if p in str(row.get("problema", "")).lower():
+            score += 5
+          elif p in str(row.get("motivo", "")).lower():
+            score += 3
+          else:
+            score += 1
+      if score > 0:
+        resultados_ocorrencias.append((score, row))
+    resultados_ocorrencias.sort(key=lambda x: x[0], reverse=True)
 
-    # Bônus para correspondência de trecho geral da consulta
-    if query_lower in texto_base:
-      score += 15
+  # 2. Buscar nos Manuais de Produtos e Regras de Negócio
+  resultados_manuais = []
+  if not df_manuais.empty:
+    for _, row in df_manuais.iterrows():
+      texto_manual = (
+          f"{row.get('titulo', '')} {row.get('sistema_produto', '')}"
+          f" {row.get('conteudo', '')}"
+      ).lower()
+      score = 0
+      if query_lower in texto_manual:
+        score += 20  # Peso maior para documentação oficial
+      for p in palavras_query:
+        if p in texto_manual:
+          if p in str(row.get("titulo", "")).lower():
+            score += 6
+          else:
+            score += 2
+      if score > 0:
+        resultados_manuais.append((score, row))
+    resultados_manuais.sort(key=lambda x: x[0], reverse=True)
 
-    # Pontuação flexível por ocorrência de palavras-chave individuais
-    for p in palavras_query:
-      if p in texto_base:
-        if p in str(row.get("problema", "")).lower():
-          score += 5
-        elif p in str(row.get("motivo", "")).lower():
-          score += 3
-        else:
-          score += 1
+  match_ocor = [r[1] for r in resultados_ocorrencias[:3]]
+  match_man = [r[1] for r in resultados_manuais[:3]]
 
-    if score > 0:
-      resultados.append((score, row))
-
-  resultados.sort(key=lambda x: x[0], reverse=True)
-  return [r[1] for r in resultados[:4]]
+  return match_ocor, match_man
 
 
 # ==========================================
@@ -716,6 +782,11 @@ try:
 except Exception:
   df_ocorrencias = pd.DataFrame()
 
+try:
+  df_manuais = buscar_manuais_db()
+except Exception:
+  df_manuais = pd.DataFrame()
+
 for col in [
     "sistema",
     "equipamento",
@@ -731,11 +802,12 @@ for col in [
   if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
     df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS
+# CRIAÇÃO DAS ABAS (ADICIONADA ABA DE MANUAIS)
 abas_navegacao = [
     "📋 Diagnósticos",
     "⚡ Guia Interativo",
     "🤖 Copilot IA",
+    "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
     "➕ Cadastrar Tratativa",
@@ -1357,97 +1429,179 @@ with tabs[indice_fluxo]:
         )
 
 # ==========================================
-# ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE)
+# ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE COM MANUAIS)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Copilot IA")
 with tabs[indice_copilot]:
   st.subheader("🤖 Assistente Inteligente de Diagnóstico (Copilot)")
   st.markdown(
-      "Descreva o problema ou sintoma em **linguagem natural** (ex: *A catraca"
-      " do cliente perdeu a conexão com o IP após a atualização*). O Copilot"
-      " cruzará os dados da base de conhecimento instantaneamente para"
-      " sugerir o procedimento ideal."
+      "Descreva o problema ou sintoma em **linguagem natural** (ex: *Como"
+      " configuro a porta TCP no sistema Legado ou no Edge?*). O Copilot"
+      " consultará tanto a **Documentação Oficial dos Produtos** quanto os"
+      " **Chamados Passados**."
   )
 
   if "copilot_messages" not in st.session_state:
     st.session_state.copilot_messages = [{
         "role": "assistant",
         "content": (
-            "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente"
-            " de campo ou o sintoma que você está enfrentando para que eu"
-            " encontre a solução exata."
+            "Olá! Sou o Copilot técnico da actuar.group. Já estou integrado à"
+            " base de manuais e ocorrências. Qual é a dúvida ou problema do"
+            " produto hoje?"
         ),
     }]
 
   user_query = st.chat_input(
-      "Ex: Catraca travou na leitura facial após reiniciar o serviço..."
+      "Ex: Erro de DLL na biometria facial do The New..."
   )
 
   if user_query:
-    # Renova o histórico a cada nova pesquisa, exibindo apenas a saudação e a busca atual
     st.session_state.copilot_messages = [
         {
             "role": "assistant",
             "content": (
-                "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente"
-                " de campo ou o sintoma que você está enfrentando para que eu"
-                " encontre a solução exata."
+                "Olá! Sou o Copilot técnico da actuar.group. Já estou integrado à"
+                " base de manuais e ocorrências. Qual é a dúvida ou problema do"
+                " produto hoje?"
             ),
         },
         {"role": "user", "content": user_query},
     ]
 
-    matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
-    if matches_raw:
-      match_dicts = []
-      for row in matches_raw:
-        m_dict = {
-            "id": int(row["id"]),
-            "problema": row.get("problema", ""),
-            "motivo": row.get("motivo", ""),
-            "sistema": row.get("sistema", ""),
-            "equipamento": row.get("equipamento", ""),
-            "solucao": row.get("solucao", ""),
-            "anexo_url": row.get("anexo_url", ""),
-        }
-        match_dicts.append(m_dict)
+    match_ocor, match_man = buscar_melhor_solucao_copilot(
+        user_query, df_ocorrencias, df_manuais
+    )
 
-      resposta_texto = (
-          f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is)"
-          " na base de conhecimento para o seu relato:"
-      )
+    if match_ocor or match_man:
+      resposta_texto = f"Encontrei **{len(match_man)}** manual(is) de produto e **{len(match_ocor)}** tratativa(s) relevante(s) na base:"
       st.session_state.copilot_messages.append({
           "role": "assistant",
           "content": resposta_texto,
-          "matches": match_dicts,
+          "match_ocor": match_ocor,
+          "match_man": match_man,
       })
     else:
       resposta_texto = (
-          "Não encontrei nenhuma tratativa exata na base para este"
-          " problema específico. Recomendo verificar com a equipe sênior ou"
-          " cadastrar este novo caso após resolvê-lo na aba **Cadastrar"
-          " Tratativa**."
+          "Não encontrei informações nos manuais nem em chamados passados sobre"
+          " este termo exato. Recomendo cadastrar os detalhes na aba **📚 Manuais"
+          " & Produtos** para que eu passe a conhecer este aspecto do produto."
       )
       st.session_state.copilot_messages.append({
           "role": "assistant",
           "content": resposta_texto,
-          "matches": [],
+          "match_ocor": [],
+          "match_man": [],
       })
 
   for msg in st.session_state.copilot_messages:
     with st.chat_message(msg["role"]):
       st.markdown(msg["content"])
-      if "matches" in msg and msg["matches"]:
-        for m in msg["matches"]:
+
+      if "match_man" in msg and msg["match_man"]:
+        st.markdown("#### 📚 Manuais e Documentações Oficiais Encontradas:")
+        for m in msg["match_man"]:
           with st.expander(
-              f"📌 Sugestão [ID #{m['id']}] — {m['problema']} ({m['sistema']} /"
+              f"📖 [Manual] {m.get('titulo')} ({m.get('sistema_produto')})"
+          ):
+            st.markdown(f"**Conteúdo / Regras do Produto:**")
+            st.info(m.get("conteudo"))
+
+      if "match_ocor" in msg and msg["match_ocor"]:
+        st.markdown("#### 🚨 Ocorrências / Chamados Compatíveis:")
+        for m in msg["match_ocor"]:
+          with st.expander(
+              f"📌 [ID #{m['id']}] — {m['problema']} ({m['sistema']} /"
               f" {m['equipamento']})"
           ):
             st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
             renderizar_solucao_estruturada(m["solucao"], m["anexo_url"])
 
 # ==========================================
-# ABA 3: MODO TV
+# ABA 3: MANUAIS & PRODUTOS (ALIMENTAR O CONHECIMENTO DO PRODUTO)
+# ==========================================
+indice_manuais = abas_navegacao.index("📚 Manuais & Produtos")
+with tabs[indice_manuais]:
+  st.subheader("📚 Base de Conhecimento de Produtos e Manuais Técnicos")
+  st.markdown(
+      "Alimente aqui a IA com **manuais completos, parâmetros, regras de"
+      " negócio e especificações** dos seus sistemas e hardwares. Quanto mais"
+      " informações você cadastrar, mais inteligente e assertivo o Copilot será"
+      " nos diagnósticos!"
+  )
+
+  with st.form("form_novo_manual", clear_on_submit=True):
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+      m_sistema = st.selectbox(
+          "💻 Sistema / Módulo Afetado:",
+          LISTA_SISTEMA,
+          key="manual_sistema",
+      )
+      m_titulo = st.text_input(
+          "Título do Manual / Especificação:",
+          placeholder="Ex: Manual de Configuração de IPs e Portas - The New",
+      )
+    with col_m2:
+      m_hardware = st.selectbox(
+          "⚙️ Hardware Relacionado (Opcional):",
+          LISTA_HARDWARE,
+          key="manual_hw",
+      )
+
+    m_conteudo = st.text_area(
+        "📄 Conteúdo Completo, Parâmetros ou Regras do Produto:",
+        placeholder=(
+            "Cole aqui todo o texto do manual, especificações técnicas,"
+            " comandos SQL, comportamentos esperados, códigos de erro e regras"
+            " de funcionamento do produto..."
+        ),
+        height=200,
+    )
+
+    if st.form_submit_button("💾 Salvar Manual na Base de Conhecimento"):
+      if m_titulo and m_conteudo:
+        dados_manual = {
+            "sistema_produto": m_sistema,
+            "hardware": m_hardware,
+            "titulo": m_titulo,
+            "conteudo": m_conteudo,
+        }
+        if salvar_manual_db(dados_manual, "tecnico@actuar.group"):
+          st.toast(
+              "Manual cadastrado com sucesso! O Copilot já está com acesso a"
+              " ele.",
+              icon="🎉",
+          )
+          st.rerun()
+      else:
+        st.error(
+            "Preencha o título e o conteúdo do manual antes de salvar."
+        )
+
+  st.markdown("---")
+  st.markdown("### 📋 Manuais Cadastrados Atualmente")
+  if df_manuais.empty:
+    st.info(
+        "Nenhum manual técnico cadastrado ainda. Adicione acima para treinar a"
+        " IA sobre o seu produto!"
+    )
+  else:
+    for _, row in df_manuais.iterrows():
+      m_id = row["id"]
+      m_tit = row.get("titulo", "Sem título")
+      m_sist = row.get("sistema_produto", "N/A")
+      m_hw = row.get("hardware", "N/A")
+      m_cont = row.get("conteudo", "")
+
+      with st.expander(f"📖 [ID #{m_id}] {m_tit} ({m_sist} / {m_hw})"):
+        st.markdown(f"**Conteúdo Registrado:**\n{m_cont}")
+        if st.button(f"🗑️ Excluir Manual #{m_id}", key=f"del_manual_{m_id}"):
+          if deletar_manual_db(m_id, "tecnico@actuar.group"):
+            st.toast("Manual excluído!", icon="🗑️")
+            st.rerun()
+
+# ==========================================
+# ABA 4: MODO TV
 # ==========================================
 indice_tv = abas_navegacao.index("📺 Modo TV")
 with tabs[indice_tv]:
@@ -1518,7 +1672,7 @@ with tabs[indice_tv]:
       st.rerun()
 
 # ==========================================
-# ABA 4: MEUS FAVORITOS
+# ABA 5: MEUS FAVORITOS
 # ==========================================
 indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
 with tabs[indice_fav]:
@@ -1564,7 +1718,7 @@ with tabs[indice_fav]:
         renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 5: CADASTRO COM ANEXOS NO PROBLEMA E PASSOS
+# ABA 6: CADASTRAR TRATATIVA
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -1675,7 +1829,7 @@ with tabs[indice_cad]:
         )
 
 # ==========================================
-# ABA 6: IMPORTAR & EXPORTAR BANCO EM TXT
+# ABA 7: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
@@ -1754,7 +1908,7 @@ with tabs[indice_export]:
     )
 
 # ==========================================
-# ABA 7: AUDIT LOG
+# ABA 8: AUDIT LOG
 # ==========================================
 indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
 with tabs[indice_audit]:
