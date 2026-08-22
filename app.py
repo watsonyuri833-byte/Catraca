@@ -147,8 +147,19 @@ gemini_client = init_gemini()
 def buscar_ocorrencias_db():
     if not supabase:
         return pd.DataFrame()
-    res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
+        df = pd.DataFrame(res.data)
+        
+        # Garante que colunas essenciais existam mesmo se vierem vazias do banco
+        colunas_obrigatorias = ["id", "sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]
+        for col in colunas_obrigatorias:
+            if col not in df.columns:
+                df[col] = None
+        return df
+    except Exception as e:
+        st.error(f"Erro ao buscar ocorrências no banco: {e}")
+        return pd.DataFrame()
 
 
 def buscar_manuais_db():
