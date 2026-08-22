@@ -576,7 +576,7 @@ def buscar_melhor_solucao_copilot(query, df_ocorrencias, df_manuais):
 
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E SIDEBAR LIMPA
+# 3. CONTROLE DE SESSÃO E SIDEBAR (COM LOGO E CATRACA)
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -586,7 +586,17 @@ with st.sidebar:
         st.image("logo_dark.png", width=70)
     elif os.path.exists("logo.png"):
         st.image("logo.png", width=70)
+
     st.markdown("---")
+
+    # Exibe a imagem da catraca na barra lateral
+    if os.path.exists("catraca.png"):
+        st.image("catraca.png", use_container_width=True)
+        st.caption(
+            "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
+            "Hardware Oficial<br><b>actuar.group</b></div>",
+            unsafe_allow_html=True,
+        )
 
 # ==========================================
 # 4. CABEÇALHO E ESTRUTURA DE ABAS
@@ -664,7 +674,7 @@ for col in [
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS - Guia Interativo Removido
+# CRIAÇÃO DAS ABAS
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Copilot IA",
