@@ -111,7 +111,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. CONEXÃO SUPABASE & GEMINI IA DINÂMICA
+# 2. CONEXÃO SUPABASE & GEMINI IA (SECRETS OU ESTADO INTERNO)
 # ==========================================
 INIT_URL = st.secrets.get("SUPABASE_URL", "https://agrvmqsspfqhfyxketia.supabase.co")
 INIT_KEY = st.secrets.get("SUPABASE_KEY", "")
@@ -150,7 +150,7 @@ gemini_client = init_gemini(st.session_state.active_gemini_key)
 # ==========================================
 def buscar_ocorrencias_db():
     if not supabase or not st.session_state.active_key:
-        st.warning("⚠️ Chave de API do Supabase ausente. Configure a chave na barra lateral para carregar as ocorrências.")
+        st.warning("⚠️ Chave de API do Supabase ausente nas configurações internas.")
         return pd.DataFrame()
     try:
         res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -164,7 +164,7 @@ def buscar_ocorrencias_db():
     except Exception as e:
         err_msg = str(e)
         if "401" in err_msg or "Unauthorized" in err_msg or "JWT" in err_msg:
-            st.error("🚨 **Erro 401 (Autenticação Negada):** A chave de acesso ao Supabase expirou ou é inválida. Atualize a chave na barra lateral.")
+            st.error("🚨 **Erro 401 (Autenticação Negada):** A chave de acesso ao Supabase expirou ou é inválida.")
         else:
             st.error(f"Erro ao buscar ocorrências no banco: {e}")
         return pd.DataFrame()
@@ -376,7 +376,7 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
 def processar_resposta_gemini(query, contexto_ocor, contexto_man):
     if not gemini_client:
-        return "⚠️ Chave de API GEMINI_API_KEY ausente. Configure a chave no painel da barra lateral para utilizar o Copilot."
+        return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
 
     prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
 Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
@@ -414,7 +414,7 @@ Diretrizes Obrigatórias:
         return f"Erro ao processar consulta com o Gemini: {e}"
 
 # ==========================================
-# 5. SIDEBAR & PAINEL DE CONEXÕES
+# 5. SIDEBAR LIMPA (SEM EXIBIÇÃO DE CHAVES)
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -425,29 +425,8 @@ with st.sidebar:
     elif os.path.exists("logo.png"):
         st.image("logo.png", width=70)
 
-    st.markdown("### 🔑 Conexão Supabase")
-    with st.expander("⚙️ Evitar / Corrigir Erro 401", expanded=not bool(st.session_state.active_key)):
-        st.caption("Ajuste as credenciais do banco Supabase:")
-        
-        url_input = st.text_input("Supabase URL", value=st.session_state.active_url)
-        key_input = st.text_input("Supabase Anon Key", value=st.session_state.active_key, type="password")
-        
-        if st.button("🔄 Reconectar Banco"):
-            st.session_state.active_url = url_input
-            st.session_state.active_key = key_input
-            st.cache_resource.clear()
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("### 🤖 Conexão Gemini IA")
-    with st.expander("⚙️ Configurar Gemini API Key", expanded=not bool(st.session_state.active_gemini_key)):
-        st.caption("Insira uma chave da API Google Gemini para habilitar o IA Copilot:")
-        gemini_key_input = st.text_input("Gemini API Key", value=st.session_state.active_gemini_key, type="password")
-        
-        if st.button("🔄 Reconectar Gemini IA"):
-            st.session_state.active_gemini_key = gemini_key_input
-            st.cache_resource.clear()
-            st.rerun()
+    st.markdown("### actuar.group")
+    st.caption("Engineering Hub & Support Center")
 
     st.markdown("---")
 
@@ -686,12 +665,12 @@ with tabs[indice_diag]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT
+# ABA 2: GEMINI IA COPILOT (RESPOSTA DIRETA SEM EXIBIR REFERÊNCIAS VISUAIS)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.markdown("Descreva a dúvida técnica em linguagem natural. A IA lerá seus manuais e ocorrências para te responder com o procedimento exato.")
+    st.markdown("Descreva a dúvida técnica em linguagem natural. A IA consultará internamente seus manuais e ocorrências para responder diretamente com o procedimento exato.")
 
     if "copilot_messages" not in st.session_state:
         st.session_state.copilot_messages = [{
@@ -704,33 +683,18 @@ with tabs[indice_copilot]:
     if user_query:
         st.session_state.copilot_messages.append({"role": "user", "content": user_query})
 
-        with st.spinner("Analisando base de dados e gerando resposta com IA..."):
+        with st.spinner("Analisando base de dados e gerando resposta..."):
             match_ocor, match_man = buscar_contexto_relevante(user_query, df_ocorrencias, df_manuais)
             resposta_ia = processar_resposta_gemini(user_query, match_ocor, match_man)
 
             st.session_state.copilot_messages.append({
                 "role": "assistant",
-                "content": resposta_ia,
-                "match_ocor": match_ocor,
-                "match_man": match_man,
+                "content": resposta_ia
             })
 
     for msg in st.session_state.copilot_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-
-            if "match_man" in msg and msg["match_man"]:
-                st.markdown("#### 📚 Manuais e Documentações Consultadas:")
-                for m in msg["match_man"]:
-                    with st.expander(f"📖 [Manual] {m.get('titulo')} ({m.get('sistema_produto')})"):
-                        st.info(m.get("conteudo"))
-
-            if "match_ocor" in msg and msg["match_ocor"]:
-                st.markdown("#### 🚨 Ocorrências Relacionadas:")
-                for m in msg["match_ocor"]:
-                    with st.expander(f"📌 [ID #{m['id']}] — {m['problema']} ({m['sistema']} / {m['equipamento']})"):
-                        st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
-                        renderizar_solucao_estruturada(m["solucao"], m["anexo_url"])
 
 # ==========================================
 # ABA 3: MANUAIS & PRODUTOS
