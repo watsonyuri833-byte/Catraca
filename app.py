@@ -113,7 +113,11 @@ st.markdown(
 # ==========================================
 # 2. CONEXÃO SUPABASE & GEMINI IA
 # ==========================================
-default_url = st.secrets.get("SUPABASE_URL", "")
+PROJECT_REF = "agrvmqsspfqhfyxketia"
+DEFAULT_SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
+
+url_secrets = st.secrets.get("SUPABASE_URL", "")
+default_url = url_secrets if "supabase.co" in url_secrets else DEFAULT_SUPABASE_URL
 default_key = st.secrets.get("SUPABASE_KEY", "")
 
 if "override_url" not in st.session_state:
@@ -129,7 +133,8 @@ def init_supabase(url: str, key: str) -> Client:
 
 try:
     supabase = init_supabase(st.session_state.override_url, st.session_state.override_key)
-except Exception:
+except Exception as e:
+    st.error(f"Erro ao conectar ao Supabase ({PROJECT_REF}): {e}")
     supabase = None
 
 
@@ -151,7 +156,6 @@ def buscar_ocorrencias_db():
         res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
         df = pd.DataFrame(res.data)
         
-        # Garante que colunas essenciais existam mesmo se vierem vazias do banco
         colunas_obrigatorias = ["id", "sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]
         for col in colunas_obrigatorias:
             if col not in df.columns:
