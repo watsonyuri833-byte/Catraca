@@ -340,7 +340,7 @@ def upload_multiplos_arquivos(files):
     return ",".join(urls) if urls else None
 
 # ==========================================
-# 4. MOTOR IA GEMINI + RAG HÍBRIDO (BANCO -> FEEDBACK -> IA GENERALISTA)
+# 4. MOTOR IA GEMINI + RAG HÍBRIDO E SUPORTE A IMAGENS
 # ==========================================
 def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
     if not query:
@@ -373,43 +373,71 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-def processar_resposta_gemini(query, contexto_ocor, contexto_man, historico_tentativa=None):
+def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man):
     if not gemini_client:
-        return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
+        return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador.", []
 
     has_db_context = bool(contexto_ocor or contexto_man)
+    imagens_encontradas = []
 
     prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
 Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
 
-Diretrizes de Atuação:
-1. Se houver dados da BASE TÉCNICA (Manuais ou Ocorrências), use-os prioritariamente.
-2. Se o técnico indicar que a solução anterior NÃO FUNCIONOU ou se a base de dados for insuficiente, acione seu Conhecimento Técnico Geral de IA especialista em redes, hardware, protocolo TCP/IP, comunicação serial e software de controle de acesso para dar uma solução alternativa avançada.
-3. Seja direto, técnico e especifique procedimentos claros em etapas numeradas.
-4. Ao usar conhecimento geral (fora da base oficial), explicite brevemente que se trata de um diagnóstico avançado via IA.
+Diretrizes de Atuação Importantes:
+1. Analise todo o histórico da conversa para manter o contexto do problema.
+2. Na PRIMEIRA RESPOSTA do tópico, utilize as informações da BASE TÉCNICA (Manuais ou Ocorrências).
+3. EXIBIÇÃO DE IMAGENS: Se houver links de imagem/anexo cadastrados para a solução ou para os passos, VOCÊ DEVE INCLUÍ-LOS NA RESPOSTA usando a sintaxe Markdown: ![Imagem Explicativa](URL_DA_IMAGEM). Se citar uma opção que possui foto cadastrada, exiba a foto logo abaixo da instrução correspondente.
+4. Se o técnico responder na conversa indicando que A SOLUÇÃO NÃO FUNCIONOU, acione seu Conhecimento Técnico Geral de IA especialista para dar uma solução alternativa e mais aprofundada.
+5. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
 """
 
-    contexto_str = ""
-    
-    if historico_tentativa:
-        contexto_str += "--- HISTÓRICO DE TENTATIVA ANTERIOR (NÃO FUNCIONOU) ---\n"
-        contexto_str += f"Pergunta Anterior: {historico_tentativa.get('pergunta_orig')}\n"
-        contexto_str += f"Resposta Anterior Fornecida: {historico_tentativa.get('resposta_orig')}\n"
-        contexto_str += f"Feedback do Técnico: {query}\n\n"
-        contexto_str += "INSTRUÇÃO ADICIONAL: O procedimento anterior falhou. Analise a falha e traga um novo diagnóstico aprofundado.\n\n"
-    else:
-        contexto_str += f"PERGUNTA DO TÉCNICO: {query}\n\n"
+    contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
+    for msg in historico_conversa:
+        papel = "TÉCNICO" if msg["role"] == "user" else "COPILOT"
+        contexto_str += f"{papel}: {msg['content']}\n\n"
 
     if has_db_context:
-        contexto_str += "--- DADOS ENCONTRADOS NA BASE DE CONHECIMENTO INTERNA ---\n"
+        contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (COM IMAGENS) ===\n"
         if contexto_man:
             for m in contexto_man:
                 contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+
         if contexto_ocor:
             for o in contexto_ocor:
-                contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
+                contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\n"
+                
+                # Extrai anexos gerais
+                anexo_gen = o.get('anexo_url')
+                if anexo_gen and str(anexo_gen).strip() != "None":
+                    for url_img in str(anexo_gen).split(","):
+                        url_trim = url_img.strip()
+                        if url_trim:
+                            imagens_encontradas.append(url_trim)
+                            contexto_str += f" - Imagem/Evidência Geral: {url_trim}\n"
+
+                # Extrai anexos por passos
+                solucao_json = o.get('solucao', '')
+                try:
+                    if solucao_json and str(solucao_json).startswith("["):
+                        passos_list = json.loads(str(solucao_json))
+                        contexto_str += "Passos da Solução:\n"
+                        for p in passos_list:
+                            txt_p = p.get('texto', '')
+                            img_p = p.get('anexo', '')
+                            contexto_str += f"  * Passo {p.get('passo')}: {txt_p}\n"
+                            if img_p and str(img_p).strip() != "None":
+                                for url_p in str(img_p).split(","):
+                                    u_p = url_p.strip()
+                                    if u_p:
+                                        imagens_encontradas.append(u_p)
+                                        contexto_str += f"    -> Foto do Passo: {u_p}\n"
+                    else:
+                        contexto_str += f"Solução Texto: {solucao_json}\n"
+                except Exception:
+                    contexto_str += f"Solução Texto: {solucao_json}\n"
+                contexto_str += "\n"
     else:
-        contexto_str += "--- ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS. USE A INTELIGÊNCIA GERAL DE IA TÉCNICA ---\n\n"
+        contexto_str += "=== ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS INTERNA. RECORRA À INTELIGÊNCIA GERAL DE IA TÉCNICA ===\n\n"
 
     try:
         response = gemini_client.models.generate_content(
@@ -420,12 +448,13 @@ Diretrizes de Atuação:
                 temperature=0.2,
             )
         )
-        return response.text
+        imagens_unicas = list(dict.fromkeys(imagens_encontradas))
+        return response.text, imagens_unicas
     except Exception as e:
-        return f"Erro ao processar consulta com o Gemini: {e}"
+        return f"Erro ao processar consulta com o Gemini: {e}", []
 
 # ==========================================
-# 5. SIDEBAR LIMPA
+# 5. SIDEBAR
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -549,7 +578,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
                 urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
                 if urls_passo:
-                    with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
+                    with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=True):
                         for idx_f, url_file in enumerate(urls_passo):
                             nome_arquivo = url_file.split("/")[-1].split("?")[0]
                             nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
@@ -675,78 +704,65 @@ with tabs[indice_diag]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT (MÓDULO INTERATIVO EM TÓPICO ÚNICO)
+# ABA 2: GEMINI IA COPILOT (MÓDULO DE CONVERSA CONTINUADA + IMAGENS)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.caption("O Copilot inicia buscando no banco de dados. Caso a instrução não resolva, comente no mesmo campo informando o erro para acionar a inteligência geral de IA.")
+    st.caption("O Copilot busca no banco de dados e exibe fotos do sistema. Se a orientação não funcionar, continue conversando normalmente.")
 
-    # Estados para o ciclo de pergunta/resposta
-    if "ultima_pergunta" not in st.session_state:
-        st.session_state.ultima_pergunta = None
-    if "ultima_resposta" not in st.session_state:
-        st.session_state.ultima_resposta = None
-    if "feedback_tentativa" not in st.session_state:
-        st.session_state.feedback_tentativa = None
+    if "historico_copilot" not in st.session_state:
+        st.session_state.historico_copilot = []
 
     col_cp_top, col_cp_reset = st.columns([5, 1])
     with col_cp_reset:
-        if st.button("🔄 Nova Dúvida"):
-            st.session_state.ultima_pergunta = None
-            st.session_state.ultima_resposta = None
-            st.session_state.feedback_tentativa = None
+        if st.button("🔄 Novo Tópico"):
+            st.session_state.historico_copilot = []
             st.rerun()
 
-    user_query = st.chat_input("Descreva a dúvida ou informe se a solução anterior não deu certo...")
+    # Exibe todo o histórico da conversa atual
+    for msg in st.session_state.historico_copilot:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            # Se a mensagem do assistente contiver imagens associadas, renderiza as imagens
+            if msg["role"] == "assistant" and "imgs" in msg and msg["imgs"]:
+                with st.expander("📷 Imagens e Evidências da Solução", expanded=True):
+                    for idx_img, url_i in enumerate(msg["imgs"]):
+                        st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
 
-    if user_query:
-        with st.spinner("Analisando e processando diagnóstico..."):
-            # Se já existia uma pergunta/resposta prévia, entende-se que o novo input é um FEEDBACK do técnico na mesma dúvida
-            if st.session_state.ultima_pergunta and st.session_state.ultima_resposta:
-                st.session_state.feedback_tentativa = {
-                    "pergunta_orig": st.session_state.ultima_pergunta,
-                    "resposta_orig": st.session_state.ultima_resposta
-                }
-                
-                # Busca novamente banco com a soma do contexto ou vai direto para refinamento
-                query_combinada = f"{st.session_state.ultima_pergunta} {user_query}"
-                match_ocor, match_man = buscar_contexto_relevante(query_combinada, df_ocorrencias, df_manuais)
-                
-                resposta_ia = processar_resposta_gemini(
-                    query=user_query,
-                    contexto_ocor=match_ocor,
-                    contexto_man=match_man,
-                    historico_tentativa=st.session_state.feedback_tentativa
-                )
-                
-                st.session_state.ultima_pergunta = f"**Dúvida Inicial:** {st.session_state.ultima_pergunta}\n\n**Retorno do Técnico:** {user_query}"
-                st.session_state.ultima_resposta = resposta_ia
+    # Entrada do usuário para chat contínuo
+    user_input = st.chat_input("Digite a dúvida ou responda ao Copilot se deu certo / qual o novo erro...")
 
-            else:
-                # Pergunta inicial: Prioridade Banco de Dados
-                match_ocor, match_man = buscar_contexto_relevante(user_query, df_ocorrencias, df_manuais)
-                resposta_ia = processar_resposta_gemini(
-                    query=user_query,
-                    contexto_ocor=match_ocor,
-                    contexto_man=match_man,
-                    historico_tentativa=None
-                )
-                
-                st.session_state.ultima_pergunta = user_query
-                st.session_state.ultima_resposta = resposta_ia
-
-    # Exibição limpa (Apenas 1 bloco ativo por vez na tela)
-    if st.session_state.ultima_pergunta and st.session_state.ultima_resposta:
+    if user_input:
+        st.session_state.historico_copilot.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
-            st.markdown(st.session_state.ultima_pergunta)
+            st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            st.markdown(st.session_state.ultima_resposta)
-            st.info("💡 *Se a solução acima não resolver, digite abaixo exatamente o que ocorreu (ex: 'Não funcionou, deu o erro X') para o Copilot gerar um diagnóstico de IA mais profundo.*")
-    else:
-        with st.chat_message("assistant"):
-            st.markdown("Olá! Sou o Copilot com IA do **actuar.group**. Digite o problema técnico para buscar a solução na base de dados.")
+            with st.spinner("Analisando base de conhecimento e processando resposta com imagens..."):
+                duvida_primeira = st.session_state.historico_copilot[0]["content"] if len(st.session_state.historico_copilot) > 0 else user_input
+                query_busca = f"{duvida_primeira} {user_input}"
+
+                match_ocor, match_man = buscar_contexto_relevante(query_busca, df_ocorrencias, df_manuais)
+
+                resposta_ia, lista_imgs = processar_resposta_gemini_chat(
+                    historico_conversa=st.session_state.historico_copilot,
+                    contexto_ocor=match_ocor,
+                    contexto_man=match_man
+                )
+
+                st.markdown(resposta_ia)
+
+                if lista_imgs:
+                    with st.expander("📷 Imagens e Evidências da Solução", expanded=True):
+                        for idx_img, url_i in enumerate(lista_imgs):
+                            st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
+
+                st.session_state.historico_copilot.append({
+                    "role": "assistant",
+                    "content": resposta_ia,
+                    "imgs": lista_imgs
+                })
 
 # ==========================================
 # ABA 3: MANUAIS & PRODUTOS
