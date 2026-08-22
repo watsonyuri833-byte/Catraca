@@ -111,46 +111,45 @@ st.markdown(
 )
 
 # ==========================================
-# 2. CONEXÃO SUPABASE & GEMINI IA
+# 2. CONEXÃO SUPABASE & GEMINI IA (SEGURO CONTRA ERRO 401)
 # ==========================================
-PROJECT_REF = "agrvmqsspfqhfyxketia"
-DEFAULT_SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
+# Lê dos Secrets do Streamlit Cloud
+INIT_URL = st.secrets.get("SUPABASE_URL", "https://agrvmqsspfqhfyxketia.supabase.co")
+INIT_KEY = st.secrets.get("SUPABASE_KEY", "")
+INIT_GEMINI = st.secrets.get("GEMINI_API_KEY", "")
 
-url_secrets = st.secrets.get("SUPABASE_URL", "")
-default_url = url_secrets if "supabase.co" in url_secrets else DEFAULT_SUPABASE_URL
-default_key = st.secrets.get("SUPABASE_KEY", "")
-
-if "override_url" not in st.session_state:
-    st.session_state.override_url = default_url
-if "override_key" not in st.session_state:
-    st.session_state.override_key = default_key
-
+if "active_url" not in st.session_state:
+    st.session_state.active_url = INIT_URL
+if "active_key" not in st.session_state:
+    st.session_state.active_key = INIT_KEY
 
 @st.cache_resource
 def init_supabase(url: str, key: str) -> Client:
     return create_client(url, key)
 
-
 try:
-    supabase = init_supabase(st.session_state.override_url, st.session_state.override_key)
+    if st.session_state.active_key:
+        supabase = init_supabase(st.session_state.active_url, st.session_state.active_key)
+    else:
+        supabase = None
 except Exception as e:
-    st.error(f"Erro ao conectar ao Supabase ({PROJECT_REF}): {e}")
+    st.error(f"Erro ao inicializar cliente Supabase: {e}")
     supabase = None
 
-
 @st.cache_resource
-def init_gemini():
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+def init_gemini(api_key: str):
     if api_key:
         return genai.Client(api_key=api_key)
     return None
 
+gemini_client = init_gemini(INIT_GEMINI)
 
-gemini_client = init_gemini()
-
-
+# ==========================================
+# 3. MÉTODOS DE BANCO DE DADOS (COM TRATAMENTO DE ERRO 401)
+# ==========================================
 def buscar_ocorrencias_db():
-    if not supabase:
+    if not supabase or not st.session_state.active_key:
+        st.warning("⚠️ Chave de API do Supabase ausente. Configure a chave na barra lateral para carregar as ocorrências.")
         return pd.DataFrame()
     try:
         res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -162,19 +161,21 @@ def buscar_ocorrencias_db():
                 df[col] = None
         return df
     except Exception as e:
-        st.error(f"Erro ao buscar ocorrências no banco: {e}")
+        err_msg = str(e)
+        if "401" in err_msg or "Unauthorized" in err_msg or "JWT" in err_msg:
+            st.error("🚨 **Erro 401 (Autenticação Negada):** A chave de acesso ao Supabase expirou ou é inválida. Atualize a chave na barra lateral para liberar o acesso.")
+        else:
+            st.error(f"Erro ao buscar ocorrências no banco: {e}")
         return pd.DataFrame()
 
-
 def buscar_manuais_db():
-    if not supabase:
+    if not supabase or not st.session_state.active_key:
         return pd.DataFrame()
     try:
         res = supabase.table("manuais_produto").select("*").order("id", desc=True).execute()
         return pd.DataFrame(res.data)
     except Exception:
         return pd.DataFrame()
-
 
 def registrar_log(usuario_email, acao, detalhes):
     if not supabase:
@@ -188,10 +189,8 @@ def registrar_log(usuario_email, acao, detalhes):
     except Exception as e:
         print(f"Erro ao registrar log: {e}")
 
-
 def limpar_dados_para_json(dados):
     return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
-
 
 def salvar_ocorrencia_db(dados, usuario_email):
     try:
@@ -203,7 +202,6 @@ def salvar_ocorrencia_db(dados, usuario_email):
         st.error(f"Erro ao salvar no Supabase: {e}")
         return False
 
-
 def salvar_manual_db(dados, usuario_email):
     try:
         dados_limpos = limpar_dados_para_json(dados)
@@ -214,7 +212,6 @@ def salvar_manual_db(dados, usuario_email):
         st.error(f"Erro ao salvar manual: {e}")
         return False
 
-
 def deletar_manual_db(manual_id, usuario_email):
     try:
         supabase.table("manuais_produto").delete().eq("id", manual_id).execute()
@@ -223,7 +220,6 @@ def deletar_manual_db(manual_id, usuario_email):
     except Exception as e:
         st.error(f"Erro ao excluir manual: {e}")
         return False
-
 
 def processar_importacao_txt(file_bytes, usuario_email):
     try:
@@ -303,119 +299,6 @@ def processar_importacao_txt(file_bytes, usuario_email):
         st.error(f"Erro ao processar importação do arquivo TXT: {e}")
         return 0
 
-
-def atualizar_ocorrencia_db(ocorrencia_id, dados_atualizados, usuario_email):
-    try:
-        dados_atualizados.pop("origem", None)
-        dados_limpos = limpar_dados_para_json(dados_atualizados)
-        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocorrencia_id).execute()
-        registrar_log(usuario_email, "EDITOU", f"Editou a ocorrência ID #{ocorrencia_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao atualizar registro: {e}")
-        return False
-
-
-def deletar_ocorrencia_db(ocorrencia_id, usuario_email):
-    try:
-        supabase.table("comentarios").delete().eq("ocorrencia_id", ocorrencia_id).execute()
-        res = supabase.table("ocorrencias").delete().eq("id", ocorrencia_id).execute()
-
-        if res.data and len(res.data) > 0:
-            registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocorrencia_id}")
-            return True
-        else:
-            st.error("O banco bloqueou a exclusão. Verifique RLS no Supabase.")
-            return False
-    except Exception as e:
-        st.error(f"Erro ao excluir no Supabase: {e}")
-        return False
-
-
-def gerenciar_voto(ocorrencia_id, tipo_voto, usuario_email):
-    try:
-        res_comentarios = (
-            supabase.table("comentarios")
-            .select("*")
-            .eq("ocorrencia_id", ocorrencia_id)
-            .eq("usuario", usuario_email)
-            .execute()
-        )
-        comentarios_usuario = res_comentarios.data if res_comentarios.data else []
-
-        voto_anterior = None
-        comentario_voto_id = None
-        for c in comentarios_usuario:
-            if c["comentario"] == "[VOTO_POS]":
-                voto_anterior = "pos"
-                comentario_voto_id = c["id"]
-                break
-            elif c["comentario"] == "[VOTO_NEG]":
-                voto_anterior = "neg"
-                comentario_voto_id = c["id"]
-                break
-
-        res_ocor = (
-            supabase.table("ocorrencias")
-            .select("votos_pos, votos_neg")
-            .eq("id", ocorrencia_id)
-            .execute()
-        )
-        if not res_ocor.data:
-            return
-        v_pos = res_ocor.data[0].get("votos_pos", 0) or 0
-        v_neg = res_ocor.data[0].get("votos_neg", 0) or 0
-
-        if voto_anterior is None:
-            supabase.table("comentarios").insert({
-                "ocorrencia_id": ocorrencia_id,
-                "usuario": usuario_email,
-                "comentario": f"[VOTO_{tipo_voto.upper()}]",
-            }).execute()
-            if tipo_voto == "pos":
-                v_pos += 1
-            else:
-                v_neg += 1
-        elif voto_anterior == tipo_voto:
-            if comentario_voto_id:
-                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
-            if tipo_voto == "pos":
-                v_pos = max(0, v_pos - 1)
-            else:
-                v_neg = max(0, v_neg - 1)
-        else:
-            if comentario_voto_id:
-                supabase.table("comentarios").delete().eq("id", comentario_voto_id).execute()
-            supabase.table("comentarios").insert({
-                "ocorrencia_id": ocorrencia_id,
-                "usuario": usuario_email,
-                "comentario": f"[VOTO_{tipo_voto.upper()}]",
-            }).execute()
-            if tipo_voto == "pos":
-                v_pos += 1
-                v_neg = max(0, v_neg - 1)
-            else:
-                v_neg += 1
-                v_pos = max(0, v_pos - 1)
-
-        supabase.table("ocorrencias").update({"votos_pos": v_pos, "votos_neg": v_neg}).eq("id", ocorrencia_id).execute()
-    except Exception as e:
-        st.error(f"Erro ao gerenciar voto: {e}")
-
-
-def buscar_comentarios(ocorrencia_id):
-    res = supabase.table("comentarios").select("*").eq("ocorrencia_id", ocorrencia_id).order("id", desc=True).execute()
-    return res.data
-
-
-def salvar_comentario(ocorrencia_id, usuario, texto):
-    supabase.table("comentarios").insert({
-        "ocorrencia_id": ocorrencia_id,
-        "usuario": usuario,
-        "comentario": texto,
-    }).execute()
-
-
 def upload_arquivo_unico(file):
     if not file:
         return None
@@ -445,7 +328,6 @@ def upload_arquivo_unico(file):
         st.error(f"Erro no upload do arquivo {file.name}: {e}")
         return None
 
-
 def upload_multiplos_arquivos(files):
     if not files:
         return None
@@ -457,9 +339,8 @@ def upload_multiplos_arquivos(files):
     urls = list(dict.fromkeys(urls))
     return ",".join(urls) if urls else None
 
-
 # ==========================================
-# MOTOR IA GEMINI + RAG
+# 4. MOTOR IA GEMINI + RAG
 # ==========================================
 def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
     if not query:
@@ -492,10 +373,9 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-
 def processar_resposta_gemini(query, contexto_ocor, contexto_man):
     if not gemini_client:
-        return "⚠️ Chave de API `GEMINI_API_KEY` não foi encontrada nos secrets do Streamlit."
+        return "⚠️ Chave de API GEMINI_API_KEY não configurada nos Secrets da plataforma."
 
     prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
 Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
@@ -532,9 +412,8 @@ Diretrizes Obrigatórias:
     except Exception as e:
         return f"Erro ao processar consulta com o Gemini: {e}"
 
-
 # ==========================================
-# 3. CONTROLE DE SESSÃO E SIDEBAR
+# 5. SIDEBAR & PAINEL DE RECONEXÃO DIRETA
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -544,6 +423,19 @@ with st.sidebar:
         st.image("logo_dark.png", width=70)
     elif os.path.exists("logo.png"):
         st.image("logo.png", width=70)
+
+    st.markdown("### 🔑 Conexão Supabase")
+    with st.expander("⚙️ Evitar / Corrigir Erro 401", expanded=not bool(st.session_state.active_key)):
+        st.caption("Se houver falha de autenticação (Erro 401), insira a chave ativa abaixo para reestabelecer o banco:")
+        
+        url_input = st.text_input("Supabase URL", value=st.session_state.active_url)
+        key_input = st.text_input("Supabase Anon Key", value=st.session_state.active_key, type="password")
+        
+        if st.button("🔄 Reconectar Banco de Dados"):
+            st.session_state.active_url = url_input
+            st.session_state.active_key = key_input
+            st.cache_resource.clear()
+            st.rerun()
 
     st.markdown("---")
 
@@ -556,7 +448,7 @@ with st.sidebar:
         )
 
 # ==========================================
-# 4. CABEÇALHO E ABAS
+# 6. CABEÇALHO E NAVEGAÇÃO PRINCIPAL
 # ==========================================
 LISTA_SISTEMA = [
     "Legado(Acesso)",
@@ -586,8 +478,7 @@ LISTA_HARDWARE = [
     "Indiferente",
 ]
 
-col_header_left, col_header_right = st.columns([6, 4])
-
+col_header_left, _ = st.columns([6, 4])
 with col_header_left:
     col_img_logo, col_txt_logo = st.columns([1, 4])
     with col_img_logo:
@@ -603,19 +494,8 @@ with col_header_left:
 
 st.markdown("---")
 
-try:
-    df_ocorrencias = buscar_ocorrencias_db()
-except Exception:
-    df_ocorrencias = pd.DataFrame()
-
-try:
-    df_manuais = buscar_manuais_db()
-except Exception:
-    df_manuais = pd.DataFrame()
-
-for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]:
-    if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
-        df_ocorrencias[col] = None
+df_ocorrencias = buscar_ocorrencias_db()
+df_manuais = buscar_manuais_db()
 
 abas_navegacao = [
     "📋 Diagnósticos",
@@ -629,7 +509,6 @@ abas_navegacao = [
 ]
 
 tabs = st.tabs(abas_navegacao)
-
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
     if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
@@ -684,7 +563,6 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
     else:
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
-
 # ==========================================
 # ABA 1: DIAGNÓSTICOS
 # ==========================================
@@ -722,10 +600,8 @@ with tabs[indice_diag]:
                     | df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
                 ]
 
-    st.session_state.df_filtered = df_filtered
-
     if df_filtered.empty:
-        st.info("Nenhuma ocorrência encontrada com os filtros selecionados.")
+        st.info("Nenhuma ocorrência encontrada. Verifique os filtros ou as credenciais do banco de dados.")
     else:
         st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
         df_display = df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]].copy().reset_index(drop=True)
@@ -797,7 +673,6 @@ with tabs[indice_diag]:
 
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
-
 # ==========================================
 # ABA 2: GEMINI IA COPILOT
 # ==========================================
@@ -845,7 +720,6 @@ with tabs[indice_copilot]:
                         st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
                         renderizar_solucao_estruturada(m["solucao"], m["anexo_url"])
 
-
 # ==========================================
 # ABA 3: MANUAIS & PRODUTOS
 # ==========================================
@@ -888,7 +762,6 @@ with tabs[indice_manuais]:
                         st.toast("Manual excluído!", icon="🗑️")
                         st.rerun()
 
-
 # ==========================================
 # ABA 4: MODO TV
 # ==========================================
@@ -905,7 +778,6 @@ with tabs[indice_tv]:
         st.markdown("---")
         st.dataframe(df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]].head(12), use_container_width=True)
 
-
 # ==========================================
 # ABA 5: FAVORITOS
 # ==========================================
@@ -918,7 +790,6 @@ with tabs[indice_fav]:
             ocor_id = int(row["id"])
             with st.expander(f"⭐ [FAVORITO #{ocor_id}] {row.get('problema')}"):
                 renderizar_solucao_estruturada(row.get("solucao"), row.get("anexo_url"))
-
 
 # ==========================================
 # ABA 6: CADASTRAR TRATATIVA
@@ -973,7 +844,6 @@ with tabs[indice_cad]:
             else:
                 st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
 
-
 # ==========================================
 # ABA 7: IMPORTAR & EXPORTAR TXT
 # ==========================================
@@ -1011,7 +881,6 @@ with tabs[indice_export]:
         mime="text/plain",
     )
 
-
 # ==========================================
 # ABA 8: AUDIT LOG
 # ==========================================
@@ -1019,9 +888,12 @@ indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
 with tabs[indice_audit]:
     st.subheader("📜 Histórico de Auditoria (Audit Log)")
     try:
-        res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-        df_logs = pd.DataFrame(res_logs.data)
-        if not df_logs.empty:
-            st.dataframe(df_logs[["created_at", "usuario_email", "acao", "detalhes"]], use_container_width=True)
+        if supabase and st.session_state.active_key:
+            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
+            df_logs = pd.DataFrame(res_logs.data)
+            if not df_logs.empty:
+                st.dataframe(df_logs[["created_at", "usuario_email", "acao", "detalhes"]], use_container_width=True)
+            else:
+                st.info("Nenhum registro de log encontrado.")
     except Exception as e:
         st.error(f"Erro ao carregar log: {e}")
