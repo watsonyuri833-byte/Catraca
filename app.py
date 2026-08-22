@@ -625,7 +625,7 @@ def buscar_melhor_solucao_copilot(query, df_ocorrencias, df_manuais):
 # ==========================================
 FLUXOS_DIAGNOSTICO = {
     "🌐 Falha de Comunicação / IP": {
-        "pergunta": "O equipamento está pingando na rede local?",
+        "pergunta": "Descreva o comportamento ou sintoma de comunicação/rede:",
         "opcoes": {
             "Não responde ao ping (Timeout)": {
                 "causa": "Cabo de rede desconectado, porta do switch queimada ou IP duplicado na rede.",
@@ -657,7 +657,7 @@ FLUXOS_DIAGNOSTICO = {
         },
     },
     "👁️ Falha no Leitor Facial / Biométrico": {
-        "pergunta": "Qual o comportamento do leitor biométrico/facial?",
+        "pergunta": "Descreva o comportamento do leitor biométrico/facial:",
         "opcoes": {
             "Tela preta / Não liga absolutamente nada": {
                 "causa": "Ausência de alimentação 12V chegando no borne do leitor ou cabo flat solto.",
@@ -688,7 +688,7 @@ FLUXOS_DIAGNOSTICO = {
         },
     },
     "⚙️ Problema Mecânico / Giro da Catraca": {
-        "pergunta": "Como a catraca está se comportando mecanicamente?",
+        "pergunta": "Descreva o comportamento mecânico da catraca:",
         "opcoes": {
             "Braço travado nos dois sentidos (não libera)": {
                 "causa": "Solenoide queimada, sem pulso elétrico da placa controladora ou trava mecânica emperrada.",
@@ -1383,50 +1383,92 @@ with tabs[indice_diag]:
             st.rerun()
 
 # ==========================================
-# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (FLUXOGRAMA)
+# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (FLUXOGRAMA POR DESCRIÇÃO)
 # ==========================================
 indice_fluxo = abas_navegacao.index("⚡ Guia Interativo")
 with tabs[indice_fluxo]:
-  st.subheader("⚡ Guia Interativo de Diagnóstico Rápido")
+  st.subheader("⚡ Guia Interativo de Diagnóstico por Descrição")
   st.markdown(
-      "Selecione a categoria do problema abaixo para iniciar o roteiro de"
-      " triagem guiada:"
+      "Selecione o módulo afetado e **descreva com suas palavras** o comportamento ou sintoma. O sistema analisará o texto inserido e indicará a causa raiz, a solução e a peça correspondente."
   )
 
   categoria_escolhida = st.selectbox(
-      "Escolha o módulo afetado:", list(FLUXOS_DIAGNOSTICO.keys())
+      "Escolha o módulo afetado:", list(FLUXOS_DIAGNOSTICO.keys()), key="select_modulo_guia"
   )
 
   if categoria_escolhida:
     fluxo = FLUXOS_DIAGNOSTICO[categoria_escolhida]
 
     st.markdown("---")
-    st.markdown(f"### ❓ Etapa de Triagem: {fluxo['pergunta']}")
+    st.markdown(f"### ✍️ {fluxo['pergunta']}")
 
-    opcao_selecionada = st.radio(
-        "Selecione o cenário que melhor descreve o problema do cliente:",
-        list(fluxo["opcoes"].keys()),
-        key=f"radio_{categoria_escolhida}",
+    texto_usuario_guia = st.text_input(
+        "Digite a descrição do cenário ou problema:",
+        placeholder="Ex: braço travado nos dois sentidos, cabo desconectado, não libera...",
+        key=f"input_descricao_guia_{categoria_escolhida}"
     )
 
-    if opcao_selecionada:
-      detalhes = fluxo["opcoes"][opcao_selecionada]
+    if texto_usuario_guia:
+      texto_lower = texto_usuario_guia.lower()
+      palavras_query = [p.lower() for p in re.findall(r'\w+', texto_lower) if len(p) > 2]
+      
+      melhor_opcao_nome = None
+      detalhes = None
+      maior_pontuacao = -1
+
+      for nome_op, det in fluxo["opcoes"].items():
+        score = 0
+        texto_comparacao = f"{nome_op} {det.get('causa', '')} {det.get('solucao', '')} {det.get('peca', '')}".lower()
+        
+        if texto_lower in texto_comparacao:
+          score += 30
+          
+        for p in palavras_query:
+          if p in texto_comparacao:
+            if p in nome_op.lower():
+              score += 10
+            else:
+              score += 2
+              
+        if score > maior_pontuacao:
+          maior_pontuacao = score
+          melhor_opcao_nome = nome_op
+          detalhes = det
 
       st.markdown("---")
-      st.markdown("### 🛠️ Diagnóstico e Solução Recomendada")
+      st.markdown("### 🛠️ Diagnóstico Analisado pelo Sistema")
 
-      col_d1, col_d2 = st.columns([2, 1])
-      with col_d1:
-        st.error(f"**Causa Raiz Mais Provável:**\n{detalhes['causa']}")
-        st.success(f"**Procedimento de Correção:**\n{detalhes['solucao']}")
-      with col_d2:
-        st.warning(
-            f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes['peca']}**"
-        )
-        st.info(
-            "💡 *Dica:* Se este procedimento resolver, cadastre a ocorrência na"
-            " aba de Tratativas para enriquecer a base!"
-        )
+      if maior_pontuacao > 0 and detalhes:
+        st.info(f"🔎 **Cenário Identificado:** *{melhor_opcao_nome}*")
+        
+        col_d1, col_d2 = st.columns([2, 1])
+        with col_d1:
+          st.error(f"**Causa Raiz Mais Provável:**\n{detalhes['causa']}")
+          st.success(f"**Procedimento de Correção:**\n{detalhes['solucao']}")
+        with col_d2:
+          st.warning(
+              f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes['peca']}**"
+          )
+          st.info(
+              "💡 *Dica:* Se este procedimento resolver, cadastre a ocorrência na"
+              " aba de Tratativas para enriquecer a base!"
+          )
+      else:
+        primeira_chave = list(fluxo["opcoes"].keys())[0]
+        detalhes_fb = fluxo["opcoes"][primeira_chave]
+        st.warning("⚠️ Não encontramos uma correspondência exata para os termos digitados, mas aqui está a recomendação mais próxima:")
+        st.info(f"🔎 **Cenário Base:** *{primeira_chave}*")
+        
+        col_d1, col_d2 = st.columns([2, 1])
+        with col_d1:
+          st.error(f"**Causa Raiz Mais Provável:**\n{detalhes_fb['causa']}")
+          st.success(f"**Procedimento de Correção:**\n{detalhes_fb['solucao']}")
+        with col_d2:
+          st.warning(
+              f"📦 **Peça de Reposição Indicada:**\n\n**{detalhes_fb['peca']}**"
+          )
+    else:
+      st.caption("💡 Digite acima o sintoma ou comportamento para que o sistema analise e exiba o diagnóstico correspondente.")
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE COM MANUAIS)
@@ -1829,7 +1871,7 @@ with tabs[indice_cad]:
         )
 
 # ==========================================
-# ABA 7: IMPORTAR & EXPORTAR BANCO EM TXT (ATUALIZADO)
+# ABA 7: IMPORTAR & EXPORTAR BANCO EM TXT
 # ==========================================
 indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
@@ -1882,14 +1924,12 @@ with tabs[indice_export]:
       f"**{len(df_para_exportar_ocor)}** ocorrência(s)/tratativa(s)."
   )
 
-  # Montagem unificada do arquivo TXT organizado
   conteudo_txt = ""
   conteudo_txt += "=" * 70 + "\n"
   conteudo_txt += "ACTUAR.GROUP - EXPORTAÇÃO GERAL DA BASE DE CONHECIMENTO\n"
   conteudo_txt += f"Data de geração: {time.strftime('%d/%m/%Y %H:%M:%S')}\n"
   conteudo_txt += "=" * 70 + "\n\n"
 
-  # 1. Seção de Manuais e Produtos
   conteudo_txt += "======================================================================\n"
   conteudo_txt += "SEÇÃO 1: MANUAIS, PRODUTOS E REGRAS DE NEGÓCIO\n"
   conteudo_txt += "======================================================================\n\n"
@@ -1906,7 +1946,6 @@ with tabs[indice_export]:
       conteudo_txt += f"Conteúdo / Regras:\n{row.get('conteudo', 'N/A')}\n"
       conteudo_txt += "-" * 50 + "\n\n"
 
-  # 2. Seção de Ocorrências e Tratativas
   conteudo_txt += "======================================================================\n"
   conteudo_txt += "SEÇÃO 2: OCORRÊNCIAS, DIAGNÓSTICOS E TRATATIVAS\n"
   conteudo_txt += "======================================================================\n\n"
