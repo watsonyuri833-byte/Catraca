@@ -1290,14 +1290,15 @@ with tabs[indice_diag]:
             st.rerun()
 
 # ==========================================
-# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (INTELLIGENT DB SEARCH)
+# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (SOLUÇÃO DIRETA & PEÇA INDICADA)
 # ==========================================
 indice_fluxo = abas_navegacao.index("⚡ Guia Interativo")
 with tabs[indice_fluxo]:
-  st.subheader("⚡ Guia Interativo Inteligente (Análise via Base de Manuais e Tratativas)")
+  st.subheader("⚡ Guia Interativo — Solução Direta & Substituição de Peças")
   st.markdown(
-      "Descreva com suas palavras o cenário ou problema da catraca/sistema. "
-      "O sistema consultará **automaticamente o seu banco de dados de manuais e ocorrências** para trazer o diagnóstico exato baseado nos seus registros!"
+      "Descreva o problema ou sintoma. O assistente analisa a base de dados nos"
+      " bastidores e retorna **apenas a solução exata** e o **componente/peça**"
+      " que deve ser substituído (se aplicável), sem exibir listas ou despejos."
   )
 
   col_g1, col_g2 = st.columns([1, 2])
@@ -1309,7 +1310,7 @@ with tabs[indice_fluxo]:
   with col_g2:
     texto_guia_input = st.text_input(
         "Descreva o comportamento, sintoma ou dúvida:",
-        placeholder="Ex: braço travado, erro de DLL, falha de comunicação, IP...",
+        placeholder="Ex: braço travado, erro de DLL, falha de comunicação, leitor...",
         key="guia_input_descricao_livre",
     )
 
@@ -1337,45 +1338,70 @@ with tabs[indice_fluxo]:
     )
 
     st.markdown("---")
-    st.markdown("### 🔍 Resultados Analisados no seu Banco de Dados")
 
-    if match_man or match_ocor:
-      if match_man:
-        st.markdown("#### 📚 Manuais e Documentações Oficiais Encontradas:")
-        for m in match_man:
-          with st.container(border=True):
-            st.markdown(
-                f"**📖 [Manual ID #{m.get('id')}] {m.get('titulo')}**"
-            )
-            st.caption(
-                f"Sistema: {m.get('sistema_produto')} | Hardware:"
-                f" {m.get('hardware')}"
-            )
-            st.markdown(f"**Conteúdo / Regras Analisadas:**")
-            st.info(m.get("conteudo"))
+    if match_ocor or match_man:
+      melhor_ocor = match_ocor[0] if match_ocor else None
+      melhor_man = match_man[0] if match_man else None
 
-      if match_ocor:
-        st.markdown("#### 🚨 Ocorrências e Tratativas Compatíveis:")
-        for m in match_ocor:
-          with st.container(border=True):
-            st.markdown(f"**📌 [Chamado ID #{m['id']}] {m['problema']}**")
-            st.caption(
-                f"Sistema: {m.get('sistema')} | Hardware:"
-                f" {m.get('equipamento')} | Status: {m.get('status')}"
-            )
-            st.markdown(f"**Motivo / Causa Raiz:** {m.get('motivo')}")
-            renderizar_solucao_estruturada(m.get("solucao"), m.get("anexo_url"))
+      with st.container(border=True):
+        st.markdown("### 🎯 Solução e Ação Recomendada")
+
+        if melhor_ocor:
+          prob_encontrado = melhor_ocor.get("problema", "N/A")
+          hw_encontrado = melhor_ocor.get("equipamento", "Indiferente")
+          motivo_encontrado = melhor_ocor.get("motivo", "Não especificado")
+          solucao_val = melhor_ocor.get("solucao", "")
+
+          st.markdown(f"**Problema Identificado:** {prob_encontrado}")
+          st.markdown(f"**Hardware Envolvido:** {hw_encontrado}")
+          st.markdown(f"**Causa Raiz:** {motivo_encontrado}")
+
+          # Identificação inteligente de peça para troca
+          texto_analise_peca = f"{motivo_encontrado} {solucao_val}".lower()
+          pecas_comuns = [
+              "placa",
+              "fonte",
+              "cabo",
+              "sensor",
+              "leitor",
+              "motor",
+              "correia",
+              "bobina",
+              "display",
+              "teclado",
+              "biometria",
+              "módulo",
+              "conector",
+          ]
+          peca_sugerida = (
+              "Nenhuma substituição de peça física necessária (ajuste de"
+              " software / rede)."
+          )
+          for p in pecas_comuns:
+            if p in texto_analise_peca:
+              peca_sugerida = (
+                  f"Substituir / Verificar componente: **{p.upper()}**"
+              )
+              break
+
+          st.error(f"🔧 **Peça / Componente Indicado:** {peca_sugerida}")
+          st.markdown("---")
+          renderizar_solucao_estruturada(solucao_val, melhor_ocor.get("anexo_url"))
+
+        elif melhor_man:
+          st.markdown(
+              f"**Referência Técnica:** {melhor_man.get('titulo')}"
+          )
+          st.info(melhor_man.get("conteudo"))
     else:
       st.warning(
-          "⚠️ Nenhuma correspondência direta encontrada na sua base de manuais ou"
-          " ocorrências para esta descrição. Tente usar outras palavras-chave ou"
-          " cadastre as orientações na aba de **Manuais & Produtos**."
+          "⚠️ Nenhuma correspondência direta encontrada na base para este"
+          " sintoma."
       )
   else:
     st.info(
-        "💡 Digite uma descrição no campo acima para que o sistema vasculhe os"
-        " seus manuais e ocorrências cadastrados no banco de dados e traga o"
-        " diagnóstico em tempo real."
+        "💡 Digite a descrição do problema acima para obter imediatamente a"
+        " solução direta e a peça a ser trocada."
     )
 
 # ==========================================
