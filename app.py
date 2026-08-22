@@ -603,7 +603,7 @@ def buscar_melhor_solucao_copilot(query, df_ocorrencias, df_manuais):
       ).lower()
       score = 0
       if query_lower in texto_manual:
-        score += 20  # Peso maior para documentação oficial
+        score += 20
       for p in palavras_query:
         if p in texto_manual:
           if p in str(row.get("titulo", "")).lower():
@@ -802,7 +802,7 @@ for col in [
   if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
     df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS (ADICIONADA ABA DE MANUAIS)
+# CRIAÇÃO DAS ABAS
 abas_navegacao = [
     "📋 Diagnósticos",
     "⚡ Guia Interativo",
@@ -1829,14 +1829,14 @@ with tabs[indice_cad]:
         )
 
 # ==========================================
-# ABA 7: IMPORTAR & EXPORTAR BANCO EM TXT
+# ABA 7: IMPORTAR & EXPORTAR BANCO EM TXT (ATUALIZADO)
 # ==========================================
 indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
-  st.subheader("📥 Importar & Exportar Base de Conhecimento (.TXT)")
+  st.subheader("📥 Importar & Exportar Base de Conhecimento Completa (.TXT)")
   st.caption(
       "Importe ocorrências em lote através de um arquivo `.TXT` estruturado"
-      " ou baixe todo o histórico (ou apenas os filtrados)."
+      " ou baixe a base unificada completa contendo manuais, produtos e tratativas."
   )
 
   st.markdown("### 📤 Importar Ocorrências em Lote")
@@ -1860,52 +1860,77 @@ with tabs[indice_export]:
         st.warning("Envie um arquivo .TXT válido.")
 
   st.markdown("---")
-  st.markdown("### 📥 Exportar Base de Dados")
-  if df_ocorrencias.empty:
-    st.info("O banco de dados está vazio.")
+  st.markdown("### 📥 Exportar Base Completa Unificada (Manuais + Tratativas)")
+  
+  tipo_export_ocor = st.radio(
+      "Selecione o escopo das ocorrências a serem incluídas na exportação:",
+      [
+          "Todas as Ocorrências (Base Completa)",
+          "Apenas Ocorrências Filtradas (aba Diagnósticos)",
+      ],
+      horizontal=True,
+  )
+
+  df_para_exportar_ocor = (
+      df_ocorrencias
+      if tipo_export_ocor == "Todas as Ocorrências (Base Completa)"
+      else st.session_state.get("df_filtered", df_ocorrencias)
+  )
+
+  st.info(
+      f"📊 Itens na exportação: **{len(df_manuais)}** manual(is) de produto(s) e "
+      f"**{len(df_para_exportar_ocor)}** ocorrência(s)/tratativa(s)."
+  )
+
+  # Montagem unificada do arquivo TXT organizado
+  conteudo_txt = ""
+  conteudo_txt += "=" * 70 + "\n"
+  conteudo_txt += "ACTUAR.GROUP - EXPORTAÇÃO GERAL DA BASE DE CONHECIMENTO\n"
+  conteudo_txt += f"Data de geração: {time.strftime('%d/%m/%Y %H:%M:%S')}\n"
+  conteudo_txt += "=" * 70 + "\n\n"
+
+  # 1. Seção de Manuais e Produtos
+  conteudo_txt += "======================================================================\n"
+  conteudo_txt += "SEÇÃO 1: MANUAIS, PRODUTOS E REGRAS DE NEGÓCIO\n"
+  conteudo_txt += "======================================================================\n\n"
+
+  if df_manuais.empty:
+    conteudo_txt += "[Nenhum manual cadastrado na base]\n\n"
   else:
-    tipo_export = st.radio(
-        "Selecione o escopo da exportação:",
-        [
-            "Base Completa",
-            "Apenas Resultados Filtrados (aba Diagnósticos)",
-        ],
-        horizontal=True,
-    )
-
-    df_para_exportar = (
-        df_ocorrencias
-        if tipo_export == "Base Completa"
-        else st.session_state.get("df_filtered", df_ocorrencias)
-    )
-
-    st.info(
-        "Total de registros incluídos nesta exportação:"
-        f" **{len(df_para_exportar)}**"
-    )
-
-    conteudo_txt = ""
-    for _, row in df_para_exportar.iterrows():
-      conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
-      conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
-      conteudo_txt += f"Motivo: {row.get('motivo', 'N/A')}\n"
-      conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
+    for _, row in df_manuais.iterrows():
+      conteudo_txt += f"Manual ID: #{row.get('id', 'N/A')}\n"
+      conteudo_txt += f"Título: {row.get('titulo', 'N/A')}\n"
+      conteudo_txt += f"Sistema / Módulo: {row.get('sistema_produto', 'N/A')}\n"
+      conteudo_txt += f"Hardware: {row.get('hardware', 'N/A')}\n"
+      conteudo_txt += f"Data de Criação: {row.get('created_at', 'N/A')}\n"
+      conteudo_txt += f"Conteúdo / Regras:\n{row.get('conteudo', 'N/A')}\n"
       conteudo_txt += "-" * 50 + "\n\n"
 
-    nome_arquivo_download = (
-        "base_conhecimento_actuar_filtrada.txt"
-        if tipo_export != "Base Completa"
-        else "base_conhecimento_actuar.txt"
-    )
+  # 2. Seção de Ocorrências e Tratativas
+  conteudo_txt += "======================================================================\n"
+  conteudo_txt += "SEÇÃO 2: OCORRÊNCIAS, DIAGNÓSTICOS E TRATATIVAS\n"
+  conteudo_txt += "======================================================================\n\n"
 
-    st.download_button(
-        label=(
-            f"📥 Baixar Ocorrências em TXT ({len(df_para_exportar)} registros)"
-        ),
-        data=conteudo_txt,
-        file_name=nome_arquivo_download,
-        mime="text/plain",
-    )
+  if df_para_exportar_ocor.empty:
+    conteudo_txt += "[Nenhuma ocorrência registrada]\n\n"
+  else:
+    for _, row in df_para_exportar_ocor.iterrows():
+      conteudo_txt += f"Erro: {row.get('problema', 'N/A')}\n"
+      conteudo_txt += f"Sistema: {row.get('sistema', 'N/A')}\n"
+      conteudo_txt += f"Hardware: {row.get('equipamento', 'N/A')}\n"
+      conteudo_txt += f"Status: {row.get('status', 'N/A')}\n"
+      conteudo_txt += f"Nível: {row.get('nivel', 'N/A')}\n"
+      conteudo_txt += f"Motivo / Causa Raiz: {row.get('motivo', 'N/A')}\n"
+      conteudo_txt += f"Solução: {row.get('solucao', 'N/A')}\n"
+      conteudo_txt += f"Anexo URL: {row.get('anexo_url', 'N/A')}\n"
+      conteudo_txt += "-" * 50 + "\n\n"
+
+  st.download_button(
+      label="📥 Baixar Base Completa em TXT (Manuais + Tratativas)",
+      data=conteudo_txt,
+      file_name="base_geral_completa_actuar.txt",
+      mime="text/plain",
+  )
 
 # ==========================================
 # ABA 8: AUDIT LOG
