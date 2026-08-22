@@ -111,7 +111,7 @@ st.markdown(
 )
 
 # ==========================================
-# 2. CONEXÃO SUPABASE & GEMINI IA (SECRETS OU ESTADO INTERNO)
+# 2. CONEXÃO SUPABASE & GEMINI IA
 # ==========================================
 INIT_URL = st.secrets.get("SUPABASE_URL", "https://agrvmqsspfqhfyxketia.supabase.co")
 INIT_KEY = st.secrets.get("SUPABASE_KEY", "")
@@ -155,7 +155,6 @@ def buscar_ocorrencias_db():
     try:
         res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
         df = pd.DataFrame(res.data)
-        
         colunas_obrigatorias = ["id", "sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]
         for col in colunas_obrigatorias:
             if col not in df.columns:
@@ -341,7 +340,7 @@ def upload_multiplos_arquivos(files):
     return ",".join(urls) if urls else None
 
 # ==========================================
-# 4. MOTOR IA GEMINI + RAG
+# 4. MOTOR IA GEMINI + RAG HÍBRIDO (BANCO -> FEEDBACK -> IA GENERALISTA)
 # ==========================================
 def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
     if not query:
@@ -374,31 +373,43 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-def processar_resposta_gemini(query, contexto_ocor, contexto_man):
+def processar_resposta_gemini(query, contexto_ocor, contexto_man, historico_tentativa=None):
     if not gemini_client:
         return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
+
+    has_db_context = bool(contexto_ocor or contexto_man)
 
     prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
 Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
 
-Diretrizes Obrigatórias:
-1. Responda em Português do Brasil com clareza técnica.
-2. Diga com precisão a causa raiz e o passo a passo da solução.
-3. Leve em conta a diferença entre operação com Stream (webcam/processamento no servidor) e sem Stream (modo offline/sincronização local no Control ID).
-4. Baseie-se estritamente no contexto de Manuais e Ocorrências fornecido. Se a resposta não estiver clara na base, informe honestamente e dê uma orientação geral coerente.
+Diretrizes de Atuação:
+1. Se houver dados da BASE TÉCNICA (Manuais ou Ocorrências), use-os prioritariamente.
+2. Se o técnico indicar que a solução anterior NÃO FUNCIONOU ou se a base de dados for insuficiente, acione seu Conhecimento Técnico Geral de IA especialista em redes, hardware, protocolo TCP/IP, comunicação serial e software de controle de acesso para dar uma solução alternativa avançada.
+3. Seja direto, técnico e especifique procedimentos claros em etapas numeradas.
+4. Ao usar conhecimento geral (fora da base oficial), explicite brevemente que se trata de um diagnóstico avançado via IA.
 """
 
-    contexto_str = f"PERGUNTA DO TÉCNICO: {query}\n\n"
+    contexto_str = ""
+    
+    if historico_tentativa:
+        contexto_str += "--- HISTÓRICO DE TENTATIVA ANTERIOR (NÃO FUNCIONOU) ---\n"
+        contexto_str += f"Pergunta Anterior: {historico_tentativa.get('pergunta_orig')}\n"
+        contexto_str += f"Resposta Anterior Fornecida: {historico_tentativa.get('resposta_orig')}\n"
+        contexto_str += f"Feedback do Técnico: {query}\n\n"
+        contexto_str += "INSTRUÇÃO ADICIONAL: O procedimento anterior falhou. Analise a falha e traga um novo diagnóstico aprofundado.\n\n"
+    else:
+        contexto_str += f"PERGUNTA DO TÉCNICO: {query}\n\n"
 
-    if contexto_man:
-        contexto_str += "--- MANUAIS TÉCNICOS ENCONTRADOS ---\n"
-        for m in contexto_man:
-            contexto_str += f"Título: {m.get('titulo')}\nSistema/HW: {m.get('sistema_produto')} / {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
-
-    if contexto_ocor:
-        contexto_str += "--- OCORRÊNCIAS / PASSADOS RELACIONADOS ---\n"
-        for o in contexto_ocor:
-            contexto_str += f"Problema: {o.get('problema')}\nSistema/HW: {o.get('sistema')} / {o.get('equipamento')}\nMotivo: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
+    if has_db_context:
+        contexto_str += "--- DADOS ENCONTRADOS NA BASE DE CONHECIMENTO INTERNA ---\n"
+        if contexto_man:
+            for m in contexto_man:
+                contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+        if contexto_ocor:
+            for o in contexto_ocor:
+                contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
+    else:
+        contexto_str += "--- ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS. USE A INTELIGÊNCIA GERAL DE IA TÉCNICA ---\n\n"
 
     try:
         response = gemini_client.models.generate_content(
@@ -414,7 +425,7 @@ Diretrizes Obrigatórias:
         return f"Erro ao processar consulta com o Gemini: {e}"
 
 # ==========================================
-# 5. SIDEBAR LIMPA (SEM EXIBIÇÃO DE CHAVES)
+# 5. SIDEBAR LIMPA
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
@@ -427,7 +438,6 @@ with st.sidebar:
 
     st.markdown("### actuar.group")
     st.caption("Engineering Hub & Support Center")
-
     st.markdown("---")
 
     if os.path.exists("catraca.png"):
@@ -665,37 +675,78 @@ with tabs[indice_diag]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT (RESPOSTA ÚNICA - SEM ACUMULAR HISTÓRICO)
+# ABA 2: GEMINI IA COPILOT (MÓDULO INTERATIVO EM TÓPICO ÚNICO)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.markdown("Descreva a dúvida técnica abaixo. Cada nova pergunta substitui a resposta anterior para manter a tela limpa.")
+    st.caption("O Copilot inicia buscando no banco de dados. Caso a instrução não resolva, comente no mesmo campo informando o erro para acionar a inteligência geral de IA.")
 
+    # Estados para o ciclo de pergunta/resposta
     if "ultima_pergunta" not in st.session_state:
         st.session_state.ultima_pergunta = None
     if "ultima_resposta" not in st.session_state:
         st.session_state.ultima_resposta = None
+    if "feedback_tentativa" not in st.session_state:
+        st.session_state.feedback_tentativa = None
 
-    user_query = st.chat_input("Ex: Facial libera catraca mas mostra não identificado sem foto...")
+    col_cp_top, col_cp_reset = st.columns([5, 1])
+    with col_cp_reset:
+        if st.button("🔄 Nova Dúvida"):
+            st.session_state.ultima_pergunta = None
+            st.session_state.ultima_resposta = None
+            st.session_state.feedback_tentativa = None
+            st.rerun()
+
+    user_query = st.chat_input("Descreva a dúvida ou informe se a solução anterior não deu certo...")
 
     if user_query:
-        with st.spinner("Analisando base de dados e gerando resposta..."):
-            match_ocor, match_man = buscar_contexto_relevante(user_query, df_ocorrencias, df_manuais)
-            resposta_ia = processar_resposta_gemini(user_query, match_ocor, match_man)
+        with st.spinner("Analisando e processando diagnóstico..."):
+            # Se já existia uma pergunta/resposta prévia, entende-se que o novo input é um FEEDBACK do técnico na mesma dúvida
+            if st.session_state.ultima_pergunta and st.session_state.ultima_resposta:
+                st.session_state.feedback_tentativa = {
+                    "pergunta_orig": st.session_state.ultima_pergunta,
+                    "resposta_orig": st.session_state.ultima_resposta
+                }
+                
+                # Busca novamente banco com a soma do contexto ou vai direto para refinamento
+                query_combinada = f"{st.session_state.ultima_pergunta} {user_query}"
+                match_ocor, match_man = buscar_contexto_relevante(query_combinada, df_ocorrencias, df_manuais)
+                
+                resposta_ia = processar_resposta_gemini(
+                    query=user_query,
+                    contexto_ocor=match_ocor,
+                    contexto_man=match_man,
+                    historico_tentativa=st.session_state.feedback_tentativa
+                )
+                
+                st.session_state.ultima_pergunta = f"**Dúvida Inicial:** {st.session_state.ultima_pergunta}\n\n**Retorno do Técnico:** {user_query}"
+                st.session_state.ultima_resposta = resposta_ia
 
-            st.session_state.ultima_pergunta = user_query
-            st.session_state.ultima_resposta = resposta_ia
+            else:
+                # Pergunta inicial: Prioridade Banco de Dados
+                match_ocor, match_man = buscar_contexto_relevante(user_query, df_ocorrencias, df_manuais)
+                resposta_ia = processar_resposta_gemini(
+                    query=user_query,
+                    contexto_ocor=match_ocor,
+                    contexto_man=match_man,
+                    historico_tentativa=None
+                )
+                
+                st.session_state.ultima_pergunta = user_query
+                st.session_state.ultima_resposta = resposta_ia
 
+    # Exibição limpa (Apenas 1 bloco ativo por vez na tela)
     if st.session_state.ultima_pergunta and st.session_state.ultima_resposta:
         with st.chat_message("user"):
             st.markdown(st.session_state.ultima_pergunta)
 
         with st.chat_message("assistant"):
             st.markdown(st.session_state.ultima_resposta)
+            st.info("💡 *Se a solução acima não resolver, digite abaixo exatamente o que ocorreu (ex: 'Não funcionou, deu o erro X') para o Copilot gerar um diagnóstico de IA mais profundo.*")
     else:
         with st.chat_message("assistant"):
-            st.markdown("Olá! Sou o Copilot com IA do actuar.group. Como posso te ajudar na solução de problemas técnicos de hoje?")
+            st.markdown("Olá! Sou o Copilot com IA do **actuar.group**. Digite o problema técnico para buscar a solução na base de dados.")
 
 # ==========================================
 # ABA 3: MANUAIS & PRODUTOS
