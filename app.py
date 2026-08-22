@@ -664,10 +664,9 @@ for col in [
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# CRIAÇÃO DAS ABAS
+# CRIAÇÃO DAS ABAS - Guia Interativo Removido
 abas_navegacao = [
     "📋 Diagnósticos",
-    "⚡ Guia Interativo",
     "🤖 Copilot IA",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
@@ -1233,123 +1232,6 @@ with tabs[indice_diag]:
                     if sucesso:
                         st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
                         st.rerun()
-
-# ==========================================
-# ABA: GUIA DE DIAGNÓSTICO INTERATIVO (EXCLUSIVO PARA PEÇAS E MANUAIS DE PRODUTOS)
-# ==========================================
-indice_fluxo = abas_navegacao.index("⚡ Guia Interativo")
-with tabs[indice_fluxo]:
-    st.subheader("⚡ Guia Interativo — Diagnóstico de Peças & Componentes")
-    st.markdown(
-        "Consulte falhas, substituição e diagnósticos de **peças e componentes físicos** "
-        "com base exclusivamente na **Base de Manuais & Produtos**.\n\n"
-        "💡 *Este guia responde apenas a consultas sobre peças contidas nos manuais. Caso deseje análises amplas com IA completa, "
-        "exporte os dados do sistema na aba **📥 Importar & Exportar (TXT)**.*"
-    )
-
-    col_g1, col_g2 = st.columns([1, 2])
-    with col_g1:
-        sist_guia_opt = ["Todos os Sistemas"] + LISTA_SISTEMA
-        filtro_sist_guia = st.selectbox(
-            "Filtrar por Sistema (Opcional):", sist_guia_opt, key="guia_filtro_sist"
-        )
-    with col_g2:
-        texto_guia_input = st.text_input(
-            "Descreva a peça ou o defeito do componente físico:",
-            placeholder="Ex: placa lógica, leitor biométrico, fonte queimada, sensor...",
-            key="guia_input_descricao_livre",
-        )
-
-    if texto_guia_input:
-        df_manuais_local = df_manuais.copy()
-        if (
-            filtro_sist_guia != "Todos os Sistemas"
-            and not df_manuais_local.empty
-            and "sistema_produto" in df_manuais_local.columns
-        ):
-            df_manuais_local = df_manuais_local[
-                df_manuais_local["sistema_produto"] == filtro_sist_guia
-            ]
-
-        # Busca EXCLUSIVA na base de Manuais & Produtos
-        resultados_manuais = []
-        if not df_manuais_local.empty:
-            query_lower = texto_guia_input.lower().strip()
-            stopwords = {
-                "a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que",
-                "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao",
-                "seu", "sua", "ou", "quando", "este", "esta", "nos", "nas"
-            }
-            palavras_query = [
-                p.lower() for p in re.findall(r"\w+", query_lower)
-                if p.lower() not in stopwords and len(p) > 1
-            ]
-            if not palavras_query:
-                palavras_query = re.findall(r"\w+", query_lower)
-
-            for _, row in df_manuais_local.iterrows():
-                texto_manual = (
-                    f"{row.get('titulo', '')} {row.get('hardware', '')} "
-                    f"{row.get('sistema_produto', '')} {row.get('conteudo', '')}"
-                ).lower()
-                score = 0
-                if query_lower in texto_manual:
-                    score += 20
-                for p in palavras_query:
-                    if p in texto_manual:
-                        if p in str(row.get("titulo", "")).lower() or p in str(row.get("hardware", "")).lower():
-                            score += 6
-                        else:
-                            score += 2
-                if score > 0:
-                    resultados_manuais.append((score, row))
-
-            resultados_manuais.sort(key=lambda x: x[0], reverse=True)
-
-        match_man = [r[1] for r in resultados_manuais[:3]]
-
-        st.markdown("---")
-
-        if match_man:
-            st.markdown("### 🛠️ Instruções do Manual & Peça Identificada")
-            for melhor in match_man:
-                with st.container(border=True):
-                    st.markdown(f"#### 📖 [Manual] {melhor.get('titulo', 'Sem título')}")
-                    st.markdown(
-                        f"**💻 Sistema:** {melhor.get('sistema_produto', 'N/A')} | "
-                        f"**⚙️ Hardware:** {melhor.get('hardware', 'N/A')}"
-                    )
-
-                    conteudo_txt = str(melhor.get("conteudo", ""))
-
-                    # Verificação de peças
-                    pecas_comuns = [
-                        "placa", "fonte", "cabo", "sensor", "leitor", "motor", "correia",
-                        "bobina", "display", "teclado", "biometria", "módulo", "conector",
-                        "fusível", "relé", "solenoide", "solenóide", "trava", "bateria"
-                    ]
-                    pecas_encontradas = [
-                        p.upper() for p in pecas_comuns
-                        if p in (texto_guia_input.lower() + " " + conteudo_txt.lower())
-                    ]
-
-                    if pecas_encontradas:
-                        st.error(f"🔧 **Peça / Componente Relacionado:** {', '.join(set(pecas_encontradas))}")
-                    else:
-                        st.warning("🔧 **Peça / Componente Indicado:** Verifique a especificação no manual abaixo.")
-
-                    st.markdown("**Procedimento do Manual / Especificação:**")
-                    st.info(conteudo_txt)
-        else:
-            st.warning(
-                "⚠️ Nenhuma instrução de peça ou componente correspondente foi encontrada nos **Manuais de Produtos**.\n\n"
-                "Este guia é restrito a problemas de peças cadastrados nos manuais. "
-                "Para análises completas ou processamento externo em IA, exporte o banco de dados na aba **📥 Importar & Exportar (TXT)**."
-            )
-    else:
-        st.info(
-            "💡 Digite o nome da peça, componente ou falha de hardware para consultar os manuais cadastrados."
-        )
 
 # ==========================================
 # ABA 2: COPILOT IA (ASSISTENTE INTELIGENTE COM MANUAIS)
