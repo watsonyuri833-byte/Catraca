@@ -8,6 +8,8 @@ import streamlit as st
 from supabase import Client, create_client
 from google import genai
 from google.genai import types
+import io
+from PIL import Image
 
 # ==========================================
 # 1. CONFIGURAÇÃO E DESIGN SYSTEM
@@ -548,15 +550,23 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         if urls_problema:
             with st.expander(f"📎 Ver Evidências do Problema ({len(urls_problema)} arquivo(s))", expanded=False):
                 for idx_prob, url_file in enumerate(urls_problema):
-                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                    nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                    if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                    # Verifica se o dado é binário direto do banco ou uma URL de string comum
+                    if isinstance(url_file, bytes):
                         try:
-                            st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
-                        except Exception:
-                            st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+                            imagem_pronta = Image.open(io.BytesIO(url_file))
+                            st.image(imagem_pronta, width=500, caption=f"Anexo {idx_prob + 1}")
+                        except Exception as e:
+                            st.error(f"Erro ao carregar a imagem do banco: {e}")
                     else:
-                        st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+                        nome_arquivo = str(url_file).split("/")[-1].split("?")[0]
+                        nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
+                        if str(url_file).lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                            try:
+                                st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
+                            except Exception:
+                                st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
+                        else:
+                            st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
             st.markdown("---")
 
     passos = []
@@ -580,15 +590,22 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
                 if urls_passo:
                     with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=True):
                         for idx_f, url_file in enumerate(urls_passo):
-                            nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                            nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                            if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                            if isinstance(url_file, bytes):
                                 try:
-                                    st.image(url_file, width=450, caption=f"Passo {num_passo}: {nome_exibicao}")
-                                except Exception:
-                                    st.markdown(f"📥 Baixar: [**{nome_exibicao}**]({url_file})")
+                                    imagem_pronta = Image.open(io.BytesIO(url_file))
+                                    st.image(imagem_pronta, width=500, caption=f"Anexo {idx_f + 1}")
+                                except Exception as e:
+                                    st.error(f"Erro ao carregar a imagem do banco: {e}")
                             else:
-                                st.markdown(f"📄 Arquivo: [**{nome_exibicao}**]({url_file})")
+                                nome_arquivo = str(url_file).split("/")[-1].split("?")[0]
+                                nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
+                                if str(url_file).lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                                    try:
+                                        st.image(url_file, width=450, caption=f"Passo {num_passo}: {nome_exibicao}")
+                                    except Exception:
+                                        st.markdown(f"📥 Baixar: [**{nome_exibicao}**]({url_file})")
+                                else:
+                                    st.markdown(f"📄 Arquivo: [**{nome_exibicao}**]({url_file})")
             st.markdown("")
     else:
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
@@ -720,17 +737,21 @@ with tabs[indice_copilot]:
             st.session_state.historico_copilot = []
             st.rerun()
 
-    # Exibe todo o histórico da conversa atual
     for msg in st.session_state.historico_copilot:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            # Se a mensagem do assistente contiver imagens associadas, renderiza as imagens
             if msg["role"] == "assistant" and "imgs" in msg and msg["imgs"]:
                 with st.expander("📷 Imagens e Evidências da Solução", expanded=True):
                     for idx_img, url_i in enumerate(msg["imgs"]):
-                        st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
+                        if isinstance(url_i, bytes):
+                            try:
+                                imagem_pronta = Image.open(io.BytesIO(url_i))
+                                st.image(imagem_pronta, width=500, caption=f"Anexo {idx_img + 1}")
+                            except Exception as e:
+                                st.error(f"Erro ao carregar a imagem do banco: {e}")
+                        else:
+                            st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
 
-    # Entrada do usuário para chat contínuo
     user_input = st.chat_input("Digite a dúvida ou responda ao Copilot se deu certo / qual o novo erro...")
 
     if user_input:
@@ -756,7 +777,14 @@ with tabs[indice_copilot]:
                 if lista_imgs:
                     with st.expander("📷 Imagens e Evidências da Solução", expanded=True):
                         for idx_img, url_i in enumerate(lista_imgs):
-                            st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
+                            if isinstance(url_i, bytes):
+                                try:
+                                    imagem_pronta = Image.open(io.BytesIO(url_i))
+                                    st.image(imagem_pronta, width=500, caption=f"Anexo {idx_img + 1}")
+                                except Exception as e:
+                                    st.error(f"Erro ao carregar a imagem do banco: {e}")
+                            else:
+                                st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
 
                 st.session_state.historico_copilot.append({
                     "role": "assistant",
