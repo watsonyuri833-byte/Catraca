@@ -142,7 +142,16 @@ except Exception as e:
 @st.cache_resource
 def init_gemini(api_key: str):
     if api_key:
-        return genai.Client(api_key=api_key)
+        # Timeout explícito para evitar que a interface fique presa
+        # indefinidamente caso a API do Gemini não responda.
+        try:
+            return genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=120000),
+            )
+        except TypeError:
+            # Compatibilidade com versões antigas do google-genai.
+            return genai.Client(api_key=api_key)
     return None
 
 gemini_client = init_gemini(st.session_state.active_gemini_key)
@@ -375,22 +384,52 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man):
+def processar_resposta_gemini_chat(
+    historico_conversa,
+    contexto_ocor,
+    contexto_man,
+    placeholder=None,
+):
+    """
+    Consulta o Gemini usando streaming.
+
+    O código anterior fazia uma chamada síncrona e só mostrava o resultado
+    depois que a resposta inteira chegava. Aqui os pedaços da resposta são
+    exibidos progressivamente no Streamlit, evitando a sensação de
+    carregamento infinito.
+    """
     if not gemini_client:
-        return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador.", []
+        msg = (
+            "⚠️ Chave de API do Gemini não configurada no sistema. "
+            "Por favor, contate o administrador."
+        )
+        if placeholder is not None:
+            placeholder.error(msg)
+        return msg, []
 
     has_db_context = bool(contexto_ocor or contexto_man)
     imagens_encontradas = []
 
     prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
-Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
+Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso
+(Legado/Acesso, The New/Edge), catracas e leitores de identificação facial
+(Control ID).
 
 Diretrizes de Atuação Importantes:
 1. Analise todo o histórico da conversa para manter o contexto do problema.
-2. Na PRIMEIRA RESPOSTA do tópico, utilize as informações da BASE TÉCNICA (Manuais ou Ocorrências).
-3. EXIBIÇÃO DE IMAGENS: Se houver links de imagem/anexo cadastrados para a solução ou para os passos, VOCÊ DEVE INCLUÍ-LOS NA RESPOSTA usando a sintaxe Markdown: ![Imagem Explicativa](URL_DA_IMAGEM). Se citar uma opção que possui foto cadastrada, exiba a foto logo abaixo da instrução correspondente.
-4. Se o técnico responder na conversa indicando que A SOLUÇÃO NÃO FUNCIONOU, acione seu Conhecimento Técnico Geral de IA especialista para dar uma solução alternativa e mais aprofundada.
-5. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
+2. Na PRIMEIRA RESPOSTA do tópico, utilize as informações da BASE TÉCNICA
+   (Manuais ou Ocorrências), quando houver.
+3. EXIBIÇÃO DE IMAGENS: Se houver links de imagem/anexo cadastrados para a
+   solução ou para os passos, inclua-os na resposta usando Markdown:
+   ![Imagem Explicativa](URL_DA_IMAGEM).
+4. Se o técnico responder indicando que A SOLUÇÃO NÃO FUNCIONOU, use o
+   conhecimento técnico geral para propor uma solução alternativa e mais
+   aprofundada.
+5. Mantenha o tom profissional, direto e especifique soluções em etapas
+   numeradas.
+6. Não invente dados da base interna. Diferencie claramente uma orientação
+   encontrada na base de uma orientação técnica geral.
+7. Responda em português do Brasil.
 """
 
     contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
@@ -399,61 +438,142 @@ Diretrizes de Atuação Importantes:
         contexto_str += f"{papel}: {msg['content']}\n\n"
 
     if has_db_context:
-        contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (COM IMAGENS) ===\n"
+        contexto_str += (
+            "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (COM IMAGENS) ===\n"
+        )
+
         if contexto_man:
             for m in contexto_man:
-                contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+                contexto_str += (
+                    f"[MANUAL] Título: {m.get('titulo')} | "
+                    f"HW: {m.get('hardware')}\n"
+                    f"Conteúdo: {m.get('conteudo')}\n\n"
+                )
 
         if contexto_ocor:
             for o in contexto_ocor:
-                contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\n"
-                
-                # Extrai anexos gerais
-                anexo_gen = o.get('anexo_url')
-                if anexo_gen and str(anexo_gen).strip() != "None":
+                contexto_str += (
+                    f"[OCORRÊNCIA] Problema: {o.get('problema')} | "
+                    f"Causa: {o.get('motivo')}\n"
+                )
+
+                # Anexos gerais.
+                anexo_gen = o.get("anexo_url")
+                if anexo_gen and str(anexo_gen).strip() not in ("", "None"):
                     for url_img in str(anexo_gen).split(","):
                         url_trim = url_img.strip()
                         if url_trim:
                             imagens_encontradas.append(url_trim)
-                            contexto_str += f" - Imagem/Evidência Geral: {url_trim}\n"
+                            contexto_str += (
+                                f" - Imagem/Evidência Geral: {url_trim}\n"
+                            )
 
-                # Extrai anexos por passos
-                solucao_json = o.get('solucao', '')
+                # Anexos por passo da solução.
+                solucao_json = o.get("solucao", "")
                 try:
-                    if solucao_json and str(solucao_json).startswith("["):
+                    if solucao_json and str(solucao_json).strip().startswith("["):
                         passos_list = json.loads(str(solucao_json))
                         contexto_str += "Passos da Solução:\n"
+
                         for p in passos_list:
-                            txt_p = p.get('texto', '')
-                            img_p = p.get('anexo', '')
-                            contexto_str += f"  * Passo {p.get('passo')}: {txt_p}\n"
-                            if img_p and str(img_p).strip() != "None":
+                            txt_p = p.get("texto", "")
+                            img_p = p.get("anexo", "")
+                            contexto_str += (
+                                f"  * Passo {p.get('passo')}: {txt_p}\n"
+                            )
+
+                            if img_p and str(img_p).strip() not in ("", "None"):
                                 for url_p in str(img_p).split(","):
                                     u_p = url_p.strip()
                                     if u_p:
                                         imagens_encontradas.append(u_p)
-                                        contexto_str += f"    -> Foto do Passo: {u_p}\n"
+                                        contexto_str += (
+                                            f"    -> Foto do Passo: {u_p}\n"
+                                        )
                     else:
                         contexto_str += f"Solução Texto: {solucao_json}\n"
                 except Exception:
                     contexto_str += f"Solução Texto: {solucao_json}\n"
+
                 contexto_str += "\n"
     else:
-        contexto_str += "=== ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS INTERNA. RECORRA À INTELIGÊNCIA GERAL DE IA TÉCNICA ===\n\n"
+        contexto_str += (
+            "=== ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS "
+            "INTERNA. RECORRA À INTELIGÊNCIA GERAL DE IA TÉCNICA ===\n\n"
+        )
+
+    # Gemini 3.7 Flash estável. Não usamos temperature/top_p/top_k porque
+    # esses parâmetros devem ser evitados na linha Gemini 3.x.
+    model_name = "gemini-3.7-flash"
 
     try:
-        response = gemini_client.models.generate_content(
-            model='gemini-3.6-flash',
+        resposta_completa = ""
+
+        stream = gemini_client.models.generate_content_stream(
+            model=model_name,
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
-                temperature=0.2,
-            )
+                max_output_tokens=4096,
+            ),
         )
+
+        for chunk in stream:
+            try:
+                parte = chunk.text
+            except Exception:
+                parte = None
+
+            if parte:
+                resposta_completa += parte
+                if placeholder is not None:
+                    placeholder.markdown(resposta_completa)
+
+        if not resposta_completa.strip():
+            msg = (
+                "⚠️ O Gemini recebeu a solicitação, mas não retornou texto. "
+                "Verifique a chave da API, os limites da conta e os logs do Streamlit."
+            )
+            if placeholder is not None:
+                placeholder.warning(msg)
+            return msg, []
+
         imagens_unicas = list(dict.fromkeys(imagens_encontradas))
-        return response.text, imagens_unicas
+        return resposta_completa, imagens_unicas
+
     except Exception as e:
-        return f"Erro ao processar consulta com o Gemini: {e}", []
+        erro = str(e)
+
+        # Mensagens mais úteis para os problemas mais comuns.
+        if "API key" in erro or "API_KEY" in erro or "401" in erro or "403" in erro:
+            msg = (
+                "🚨 **Erro de autenticação no Gemini.**\n\n"
+                "A chave configurada em `GEMINI_API_KEY` está ausente, inválida "
+                "ou sem permissão para usar o modelo."
+            )
+        elif "429" in erro or "RESOURCE_EXHAUSTED" in erro:
+            msg = (
+                "⏳ **Limite da API do Gemini atingido.**\n\n"
+                "Aguarde alguns segundos e tente novamente."
+            )
+        elif "404" in erro or "NOT_FOUND" in erro:
+            msg = (
+                f"🚨 **Modelo do Gemini não encontrado:** `{model_name}`.\n\n"
+                "Atualize o pacote `google-genai` para a versão atual."
+            )
+        elif "timeout" in erro.lower() or "timed out" in erro.lower():
+            msg = (
+                "⏱️ **Tempo limite excedido ao consultar o Gemini.**\n\n"
+                "A API não respondeu dentro do limite configurado. "
+                "Tente novamente."
+            )
+        else:
+            msg = f"❌ **Erro ao processar consulta com o Gemini:**\n\n`{erro}`"
+
+        if placeholder is not None:
+            placeholder.error(msg)
+
+        return msg, []
 
 # ==========================================
 # 5. SIDEBAR
@@ -760,36 +880,59 @@ with tabs[indice_copilot]:
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analisando base de conhecimento e processando resposta com imagens..."):
-                duvida_primeira = st.session_state.historico_copilot[0]["content"] if len(st.session_state.historico_copilot) > 0 else user_input
+            with st.spinner("Consultando a base e o Gemini..."):
+                duvida_primeira = (
+                    st.session_state.historico_copilot[0]["content"]
+                    if len(st.session_state.historico_copilot) > 0
+                    else user_input
+                )
                 query_busca = f"{duvida_primeira} {user_input}"
 
-                match_ocor, match_man = buscar_contexto_relevante(query_busca, df_ocorrencias, df_manuais)
+                match_ocor, match_man = buscar_contexto_relevante(
+                    query_busca,
+                    df_ocorrencias,
+                    df_manuais,
+                )
+
+                # O placeholder é atualizado a cada pedaço recebido do Gemini.
+                resposta_placeholder = st.empty()
 
                 resposta_ia, lista_imgs = processar_resposta_gemini_chat(
                     historico_conversa=st.session_state.historico_copilot,
                     contexto_ocor=match_ocor,
-                    contexto_man=match_man
+                    contexto_man=match_man,
+                    placeholder=resposta_placeholder,
                 )
 
-                st.markdown(resposta_ia)
-
                 if lista_imgs:
-                    with st.expander("📷 Imagens e Evidências da Solução", expanded=True):
+                    with st.expander(
+                        "📷 Imagens e Evidências da Solução",
+                        expanded=True,
+                    ):
                         for idx_img, url_i in enumerate(lista_imgs):
                             if isinstance(url_i, bytes):
                                 try:
                                     imagem_pronta = Image.open(io.BytesIO(url_i))
-                                    st.image(imagem_pronta, width=500, caption=f"Anexo {idx_img + 1}")
+                                    st.image(
+                                        imagem_pronta,
+                                        width=500,
+                                        caption=f"Anexo {idx_img + 1}",
+                                    )
                                 except Exception as e:
-                                    st.error(f"Erro ao carregar a imagem do banco: {e}")
+                                    st.error(
+                                        f"Erro ao carregar a imagem do banco: {e}"
+                                    )
                             else:
-                                st.image(url_i, width=500, caption=f"Anexo {idx_img + 1}")
+                                st.image(
+                                    url_i,
+                                    width=500,
+                                    caption=f"Anexo {idx_img + 1}",
+                                )
 
                 st.session_state.historico_copilot.append({
                     "role": "assistant",
                     "content": resposta_ia,
-                    "imgs": lista_imgs
+                    "imgs": lista_imgs,
                 })
 
 # ==========================================
