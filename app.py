@@ -402,7 +402,7 @@ Diretrizes Obrigatórias:
 
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-3.6-flash',
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
