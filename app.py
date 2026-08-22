@@ -665,36 +665,37 @@ with tabs[indice_diag]:
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT (RESPOSTA DIRETA SEM EXIBIR REFERÊNCIAS VISUAIS)
+# ABA 2: GEMINI IA COPILOT (RESPOSTA ÚNICA - SEM ACUMULAR HISTÓRICO)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.markdown("Descreva a dúvida técnica em linguagem natural. A IA consultará internamente seus manuais e ocorrências para responder diretamente com o procedimento exato.")
+    st.markdown("Descreva a dúvida técnica abaixo. Cada nova pergunta substitui a resposta anterior para manter a tela limpa.")
 
-    if "copilot_messages" not in st.session_state:
-        st.session_state.copilot_messages = [{
-            "role": "assistant",
-            "content": "Olá! Sou o Copilot com IA do actuar.group. Como posso te ajudar na solução de problemas técnicos de hoje?",
-        }]
+    if "ultima_pergunta" not in st.session_state:
+        st.session_state.ultima_pergunta = None
+    if "ultima_resposta" not in st.session_state:
+        st.session_state.ultima_resposta = None
 
     user_query = st.chat_input("Ex: Facial libera catraca mas mostra não identificado sem foto...")
 
     if user_query:
-        st.session_state.copilot_messages.append({"role": "user", "content": user_query})
-
         with st.spinner("Analisando base de dados e gerando resposta..."):
             match_ocor, match_man = buscar_contexto_relevante(user_query, df_ocorrencias, df_manuais)
             resposta_ia = processar_resposta_gemini(user_query, match_ocor, match_man)
 
-            st.session_state.copilot_messages.append({
-                "role": "assistant",
-                "content": resposta_ia
-            })
+            st.session_state.ultima_pergunta = user_query
+            st.session_state.ultima_resposta = resposta_ia
 
-    for msg in st.session_state.copilot_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    if st.session_state.ultima_pergunta and st.session_state.ultima_resposta:
+        with st.chat_message("user"):
+            st.markdown(st.session_state.ultima_pergunta)
+
+        with st.chat_message("assistant"):
+            st.markdown(st.session_state.ultima_resposta)
+    else:
+        with st.chat_message("assistant"):
+            st.markdown("Olá! Sou o Copilot com IA do actuar.group. Como posso te ajudar na solução de problemas técnicos de hoje?")
 
 # ==========================================
 # ABA 3: MANUAIS & PRODUTOS
