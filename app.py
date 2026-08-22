@@ -1346,7 +1346,7 @@ with tabs[indice_fluxo]:
       with st.container(border=True):
         st.markdown("### 🎯 Solução e Ação Recomendada")
 
-        if melhor_ocor:
+        if match_ocor:
           prob_encontrado = melhor_ocor.get("problema", "N/A")
           hw_encontrado = melhor_ocor.get("equipamento", "Indiferente")
           motivo_encontrado = melhor_ocor.get("motivo", "Não especificado")
@@ -1388,7 +1388,7 @@ with tabs[indice_fluxo]:
           st.markdown("---")
           renderizar_solucao_estruturada(solucao_val, melhor_ocor.get("anexo_url"))
 
-        elif melhor_man:
+        elif match_man:
           st.markdown(
               f"**Referência Técnica:** {melhor_man.get('titulo')}"
           )
