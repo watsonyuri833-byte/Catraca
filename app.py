@@ -464,7 +464,7 @@ def upload_multiplos_arquivos(files):
 
 
 # ==========================================
-# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (MELHORADO & CONTEXTUAL)
+# ALGORITMO DE BUSCA INTELIGENTE DO COPILOT (DINÂMICO E FLEXÍVEL)
 # ==========================================
 def buscar_melhor_solucao_copilot(query, df):
   if df.empty or not query:
@@ -518,8 +518,11 @@ def buscar_melhor_solucao_copilot(query, df):
   palavras_query = [
       p.lower()
       for p in re.findall(r"\w+", query_lower)
-      if p.lower() not in stopwords and len(p) > 2
+      if p.lower() not in stopwords and len(p) > 1
   ]
+
+  if not palavras_query:
+    palavras_query = re.findall(r"\w+", query_lower)
 
   resultados = []
   for _, row in df.iterrows():
@@ -530,30 +533,25 @@ def buscar_melhor_solucao_copilot(query, df):
     ).lower()
     score = 0
 
-    # 1. Bônus pesado para correspondência da frase exata digitada
+    # Bônus para correspondência de trecho geral da consulta
     if query_lower in texto_base:
-      score += 30
+      score += 15
 
-    # 2. Relevância inteligente para frases-chave comuns (ex: "não identificado")
-    if "não identificado" in query_lower and "não identificado" in texto_base:
-      score += 40
-
-    # 3. Análise de proximidade e pontuação por termos individuais relevantes
+    # Pontuação flexível por ocorrência de palavras-chave individuais
     for p in palavras_query:
       if p in texto_base:
-        if (
-            p in str(row.get("problema", "")).lower()
-            or p in str(row.get("equipamento", "")).lower()
-        ):
-          score += 4
+        if p in str(row.get("problema", "")).lower():
+          score += 5
+        elif p in str(row.get("motivo", "")).lower():
+          score += 3
         else:
-          score += 2
+          score += 1
 
     if score > 0:
       resultados.append((score, row))
 
   resultados.sort(key=lambda x: x[0], reverse=True)
-  return [r[1] for r in resultados[:3]]
+  return [r[1] for r in resultados[:4]]
 
 
 # ==========================================
@@ -1241,6 +1239,61 @@ with tabs[indice_copilot]:
         ),
     }]
 
+  user_query = st.chat_input(
+      "Ex: Catraca travou na leitura facial após reiniciar o serviço..."
+  )
+
+  if user_query:
+    # Renova o histórico a cada nova pesquisa, exibindo apenas a saudação e a busca atual
+    st.session_state.copilot_messages = [
+        {
+            "role": "assistant",
+            "content": (
+                "Olá! Sou o Copilot técnico da actuar.group. Descreva o incidente"
+                " de campo ou o sintoma que você está enfrentando para que eu"
+                " encontre a solução exata."
+            ),
+        },
+        {"role": "user", "content": user_query},
+    ]
+
+    matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
+    if matches_raw:
+      match_dicts = []
+      for row in matches_raw:
+        m_dict = {
+            "id": int(row["id"]),
+            "problema": row.get("problema", ""),
+            "motivo": row.get("motivo", ""),
+            "sistema": row.get("sistema", ""),
+            "equipamento": row.get("equipamento", ""),
+            "solucao": row.get("solucao", ""),
+            "anexo_url": row.get("anexo_url", ""),
+        }
+        match_dicts.append(m_dict)
+
+      resposta_texto = (
+          f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is)"
+          " na base de conhecimento para o seu relato:"
+      )
+      st.session_state.copilot_messages.append({
+          "role": "assistant",
+          "content": resposta_texto,
+          "matches": match_dicts,
+      })
+    else:
+      resposta_texto = (
+          "Não encontrei nenhuma tratativa exata na base para este"
+          " problema específico. Recomendo verificar com a equipe sênior ou"
+          " cadastrar este novo caso após resolvê-lo na aba **Cadastrar"
+          " Tratativa**."
+      )
+      st.session_state.copilot_messages.append({
+          "role": "assistant",
+          "content": resposta_texto,
+          "matches": [],
+      })
+
   for msg in st.session_state.copilot_messages:
     with st.chat_message(msg["role"]):
       st.markdown(msg["content"])
@@ -1252,70 +1305,6 @@ with tabs[indice_copilot]:
           ):
             st.markdown(f"**Motivo / Causa Raiz:** {m['motivo']}")
             renderizar_solucao_estruturada(m["solucao"], m["anexo_url"])
-
-  user_query = st.chat_input(
-      "Ex: Catraca travou na leitura facial após reiniciar o serviço..."
-  )
-  if user_query:
-    st.session_state.copilot_messages.append(
-        {"role": "user", "content": user_query}
-    )
-    with st.chat_message("user"):
-      st.markdown(user_query)
-
-    with st.chat_message("assistant"):
-      with st.spinner(
-          "Analisando base de conhecimento e cruzando dados..."
-      ):
-        time.sleep(0.4)
-        matches_raw = buscar_melhor_solucao_copilot(user_query, df_ocorrencias)
-
-        if matches_raw:
-          resposta_texto = (
-              f"Encontrei **{len(matches_raw)}** tratativa(s) compatível(is)"
-              " na base de conhecimento para o seu relato:"
-          )
-          st.markdown(resposta_texto)
-
-          match_dicts = []
-          for row in matches_raw:
-            m_dict = {
-                "id": int(row["id"]),
-                "problema": row.get("problema", ""),
-                "motivo": row.get("motivo", ""),
-                "sistema": row.get("sistema", ""),
-                "equipamento": row.get("equipamento", ""),
-                "solucao": row.get("solucao", ""),
-                "anexo_url": row.get("anexo_url", ""),
-            }
-            match_dicts.append(m_dict)
-            with st.expander(
-                f"📌 Sugestão [ID #{m_dict['id']}] — {m_dict['problema']}"
-                f" ({m_dict['sistema']} / {m_dict['equipamento']})"
-            ):
-              st.markdown(f"**Motivo / Causa Raiz:** {m_dict['motivo']}")
-              renderizar_solucao_estruturada(
-                  m_dict["solucao"], m_dict["anexo_url"]
-              )
-
-          st.session_state.copilot_messages.append({
-              "role": "assistant",
-              "content": resposta_texto,
-              "matches": match_dicts,
-          })
-        else:
-          resposta_texto = (
-              "Não encontrei nenhuma tratativa exata na base para este"
-              " problema específico. Recomendo verificar com a equipe sênior ou"
-              " cadastrar este novo caso após resolvê-lo na aba **Cadastrar"
-              " Tratativa**."
-          )
-          st.markdown(resposta_texto)
-          st.session_state.copilot_messages.append({
-              "role": "assistant",
-              "content": resposta_texto,
-              "matches": [],
-          })
 
 # ==========================================
 # ABA 3: MODO TV
