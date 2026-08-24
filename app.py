@@ -579,7 +579,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA 1: DIAGNÓSTICOS (Com Edição e Exclusão)
+# ABA 1: DIAGNÓSTICOS (Com Edição Completa e Exclusão)
 # ==========================================
 indice_diag = abas_navegacao.index("📋 Diagnósticos")
 with tabs[indice_diag]:
@@ -694,7 +694,6 @@ with tabs[indice_diag]:
                 st.markdown("---")
                 col_acao_1, col_acao_2 = st.columns(2)
                 
-                # Gerenciador de estado para alternar o modo de edição
                 edit_key_state = f"edit_mode_{ocor_id}"
                 if edit_key_state not in st.session_state:
                     st.session_state[edit_key_state] = False
@@ -711,11 +710,10 @@ with tabs[indice_diag]:
                             time.sleep(0.8)
                             st.rerun()
 
-                # Formulário Dinâmico de Edição (Exibido se o modo de edição estiver ativo)
+                # Formulário Dinâmico de Edição Completa (Idêntico ao Cadastro)
                 if st.session_state[edit_key_state]:
                     st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
                     
-                    # Índices padrão seguros para os selectboxes
                     try:
                         idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
                     except ValueError:
@@ -738,15 +736,46 @@ with tabs[indice_diag]:
                     except ValueError:
                         idx_nivel = 0
 
-                    with st.form(f"form_editar_ocorrencia_{ocor_id}" ):
-                        edit_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, index=idx_sist)
-                        edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw)
-                        edit_prob = st.text_input("Problema (Sintoma):", value=prob)
-                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''))
-                        edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status)
-                        edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel)
+                    # Tenta carregar passos existentes da solução para preencher os campos de edição se houverem
+                    passos_atuais = []
+                    try:
+                        if solucao_val and str(solucao_val).strip().startswith("["):
+                            passos_atuais = json.loads(str(solucao_val))
+                    except Exception:
+                        passos_atuais = []
+
+                    with st.form(f"form_editar_ocorrencia_{ocor_id}"):
+                        col_e1, col_e2 = st.columns(2)
+                        with col_e1:
+                            edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"edit_hw_{ocor_id}")
+                            edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status, key=f"edit_st_{ocor_id}")
+                        with col_e2:
+                            edit_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, index=idx_sist, key=f"edit_sis_{ocor_id}")
+                            edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel, key=f"edit_niv_{ocor_id}")
+
+                        edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"edit_prob_{ocor_id}")
+                        edit_files_prob = st.file_uploader("📎 Novos Arquivos / Evidências do Problema:", accept_multiple_files=True, key=f"edit_prob_files_{ocor_id}")
+                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"edit_motivo_{ocor_id}")
+
+                        st.markdown("### 🛠️ Passos da Solução (Editar ou Adicionar)")
+                        passos_editados_lista = []
                         
-                        edit_solucao_texto = st.text_area("Solução (Texto simples ou descritiva atual):", value=str(solucao_val))
+                        # Permite editar até 4 passos dinâmicos mantendo a mesma estrutura do cadastro
+                        for p_idx in range(1, 5):
+                            passo_existente_obj = next((p for p in passos_atuais if p.get("passo") == p_idx), None)
+                            texto_padrao_passo = passo_existente_obj.get("texto", "") if passo_existente_obj else ""
+                            anexo_padrao_passo = passo_existente_obj.get("anexo", None) if passo_existente_obj else None
+
+                            col_p_txt, col_p_file = st.columns([2, 1])
+                            with col_p_txt:
+                                txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=texto_padrao_passo, key=f"edit_p_txt_{ocor_id}_{p_idx}")
+                            with col_p_file:
+                                files_p = st.file_uploader(f"Atualizar Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_idx}")
+
+                            if txt_p.strip():
+                                # Se novos arquivos forem enviados, faz upload. Senão, mantém o anexo anterior.
+                                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else anexo_padrao_passo
+                                passos_editados_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
 
                         col_salvar_edicao, col_cancelar_edicao = st.columns(2)
                         with col_salvar_edicao:
@@ -759,33 +788,30 @@ with tabs[indice_diag]:
                             st.rerun()
 
                         if btn_salvar_alt:
-                            # Mantém formato de passos em JSON se já era estruturado ou encapsula se alterado
-                            try:
-                                json.loads(edit_solucao_texto)
-                                nova_solucao_json = edit_solucao_texto
-                            except Exception:
-                                passos_convertidos = [{
-                                    "passo": 1,
-                                    "texto": edit_solucao_texto,
-                                    "anexo": None,
-                                }]
-                                nova_solucao_json = json.dumps(passos_convertidos)
+                            if edit_prob and edit_motivo and passos_editados_lista:
+                                json_solucao_editada = json.dumps(passos_editados_lista)
+                                
+                                # Trata evidência principal (mantém a antiga se não enviar nova)
+                                url_anexo_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else anexo
 
-                            dados_atualizados = {
-                                "sistema": edit_sist,
-                                "equipamento": edit_hw,
-                                "problema": edit_prob,
-                                "motivo": edit_motivo,
-                                "solucao": nova_solucao_json,
-                                "status": edit_status,
-                                "nivel": edit_nivel,
-                            }
+                                dados_atualizados = {
+                                    "sistema": edit_sist,
+                                    "equipamento": edit_hw,
+                                    "problema": edit_prob,
+                                    "motivo": edit_motivo,
+                                    "solucao": json_solucao_editada,
+                                    "status": edit_status,
+                                    "nivel": edit_nivel,
+                                    "anexo_url": url_anexo_prob,
+                                }
 
-                            if atualizar_ocorrencia_db(ocor_id, dados_atualizados, "tecnico@actuar.group"):
-                                st.session_state[edit_key_state] = False
-                                st.toast(f"Ocorrência #{ocor_id} atualizada com sucesso!", icon="✅")
-                                time.sleep(0.8)
-                                st.rerun()
+                                if atualizar_ocorrencia_db(ocor_id, dados_atualizados, "tecnico@actuar.group"):
+                                    st.session_state[edit_key_state] = False
+                                    st.toast(f"Ocorrência #{ocor_id} atualizada com sucesso!", icon="✅")
+                                    time.sleep(0.8)
+                                    st.rerun()
+                            else:
+                                st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
 
 # ==========================================
 # ABA 2: GEMINI IA COPILOT (MÓDULO DE CONVERSA CONTINUADA)
@@ -923,7 +949,7 @@ with tabs[indice_cad]:
 
         st.markdown("### 🛠️ Passos da Solução")
         passos_novos_lista = []
-        for p_idx in range(1, 4):
+        for p_idx in range(1, 5):
             col_p_txt, col_p_file = st.columns([2, 1])
             with col_p_txt:
                 txt_p = st.text_area(f"Descrição do Passo {p_idx}:", key=f"cad_p_txt_{p_idx}")
