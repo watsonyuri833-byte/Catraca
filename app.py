@@ -119,7 +119,8 @@ st.markdown(
         }
     }
 
-    [data-testid="stSidebar"] img[alt*="catraca"] {
+    /* Alimenta o balanço na segunda imagem da sidebar (a catraca) */
+    [data-testid="stSidebar"] div[data-testid="stImage"]:nth-of-type(2) img {
         animation: balancoCatraca 3s ease-in-out infinite !important;
         border-radius: 8px;
         transform-origin: center center;
@@ -471,8 +472,8 @@ with st.sidebar:
     st.markdown("---")
 
     if os.path.exists("catraca.png"):
-        # Importante: alt="catraca.png" garante que o CSS capture a imagem para animação
-        st.image("catraca.png", width=240, alt="catraca.png")
+        # Removido o argumento 'alt' que causava o TypeError na versão atual do Streamlit
+        st.image("catraca.png", width=240)
         st.caption(
             "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
             "Hardware Oficial<br><b>actuar.group</b></div>",
