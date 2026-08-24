@@ -105,6 +105,25 @@ st.markdown(
         color: #58a6ff !important;
         border-top: 2px solid #58a6ff !important;
     }
+
+    /* ANIMAÇÃO DA CATRACA */
+    @keyframes girarCatraca {
+        0% {
+            transform: rotate(0deg) scale(1);
+        }
+        50% {
+            transform: rotate(2.5deg) scale(1.02);
+        }
+        100% {
+            transform: rotate(-2.5deg) scale(1);
+        }
+    }
+
+    .catraca-animada img {
+        animation: girarCatraca 6s ease-in-out infinite alternate;
+        border-radius: 8px;
+        filter: drop-shadow(0 4px 12px rgba(88, 166, 255, 0.15));
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -452,7 +471,9 @@ with st.sidebar:
     st.markdown("---")
 
     if os.path.exists("catraca.png"):
+        st.markdown('<div class="catraca-animada">', unsafe_allow_html=True)
         st.image("catraca.png", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         st.caption(
             "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
             "Hardware Oficial<br><b>actuar.group</b></div>",
