@@ -396,14 +396,17 @@ def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_m
     if not gemini_client:
         return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
 
-    prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
-Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados interna de ocorrências e manuais fornecida abaixo, combinando-a com seu raciocínio técnico avançado.
+    has_db_context = bool(contexto_ocor or contexto_man)
 
-Diretrizes de Resposta:
-1. Analise o histórico da conversa e os dados da base técnica interna (Ocorrências e Manuais).
-2. Forneça uma resposta estruturada e clara, cruzando os casos cadastrados com sua capacidade analítica de IA para troubleshooting em redes, hardware, protocolos TCP/IP e controle de acesso.
-3. Se houver correspondência na base de dados, utilize-a como referência principal. Caso contrário, raciocine criticamente com base no conhecimento técnico geral de suporte.
+    prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
+Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de acesso (Legado/Acesso, The New/Edge), catracas e leitores de identificação facial (Control ID).
+
+Diretrizes de Atuação:
+1. Analise todo o histórico da conversa para ter o contexto do problema que está sendo resolvido.
+2. Na PRIMEIRA RESPOSTA do tópico, utilize prioritariamente as informações encontradas na BASE TÉCNICA (Manuais ou Ocorrências).
+3. Se o técnico responder na conversa indicando que A SOLUÇÃO NÃO FUNCIONOU ou dar novos detalhes sobre um erro persistente, acione seu Conhecimento Técnico Geral de IA especialista em redes, hardware, protocolo TCP/IP, comunicação serial e software para dar uma solução alternativa e mais aprofundada.
 4. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
+5. Quando recorrer ao seu conhecimento geral de IA (por falha no teste anterior do técnico), avise brevemente que se trata de uma análise avançada via IA.
 """
 
     contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
@@ -411,20 +414,20 @@ Diretrizes de Resposta:
         papel = "TÉCNICO" if msg["role"] == "user" else "COPILOT"
         contexto_str += f"{papel}: {msg['content']}\n\n"
 
-    contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
-    if contexto_man:
-        for m in contexto_man:
-            contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
-    if contexto_ocor:
-        for o in contexto_ocor:
-            contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
-    
-    if not contexto_man and not contexto_ocor:
-        contexto_str += "[AVISO] Nenhum registro exato encontrado na base interna. Utilize seu raciocínio técnico avançado para sugerir a tratativa ideal.\n\n"
+    if has_db_context:
+        contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA ===\n"
+        if contexto_man:
+            for m in contexto_man:
+                contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+        if contexto_ocor:
+            for o in contexto_ocor:
+                contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
+    else:
+        contexto_str += "=== ATENÇÃO: NENHUM REGISTRO EXATO ENCONTRADO NA BASE DE DADOS INTERNA. RECORRA À INTELIGÊNCIA GERAL DE IA TÉCNICA ===\n\n"
 
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -685,6 +688,9 @@ with tabs[indice_diag]:
 
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
+                # ==========================================
+                # BOTÕES DE AÇÃO: EDITAR E EXCLUIR OCORRÊNCIA
+                # ==========================================
                 st.markdown("---")
                 col_acao_1, col_acao_2 = st.columns(2)
                 
@@ -704,6 +710,7 @@ with tabs[indice_diag]:
                             time.sleep(0.8)
                             st.rerun()
 
+                # Formulário Dinâmico de Edição Completa (Idêntico ao Cadastro)
                 if st.session_state[edit_key_state]:
                     st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
                     
@@ -729,6 +736,7 @@ with tabs[indice_diag]:
                     except ValueError:
                         idx_nivel = 0
 
+                    # Tenta carregar passos existentes da solução para preencher os campos de edição se houverem
                     passos_atuais = []
                     try:
                         if solucao_val and str(solucao_val).strip().startswith("["):
@@ -752,6 +760,7 @@ with tabs[indice_diag]:
                         st.markdown("### 🛠️ Passos da Solução (Editar ou Adicionar)")
                         passos_editados_lista = []
                         
+                        # Permite editar até 4 passos dinâmicos mantendo a mesma estrutura do cadastro
                         for p_idx in range(1, 5):
                             passo_existente_obj = next((p for p in passos_atuais if p.get("passo") == p_idx), None)
                             texto_padrao_passo = passo_existente_obj.get("texto", "") if passo_existente_obj else ""
@@ -764,6 +773,7 @@ with tabs[indice_diag]:
                                 files_p = st.file_uploader(f"Atualizar Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_idx}")
 
                             if txt_p.strip():
+                                # Se novos arquivos forem enviados, faz upload. Senão, mantém o anexo anterior.
                                 url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else anexo_padrao_passo
                                 passos_editados_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
 
@@ -780,6 +790,8 @@ with tabs[indice_diag]:
                         if btn_salvar_alt:
                             if edit_prob and edit_motivo and passos_editados_lista:
                                 json_solucao_editada = json.dumps(passos_editados_lista)
+                                
+                                # Trata evidência principal (mantém a antiga se não enviar nova)
                                 url_anexo_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else anexo
 
                                 dados_atualizados = {
@@ -802,12 +814,12 @@ with tabs[indice_diag]:
                                 st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT (ANÁLISE RAG + IA EM PRIMEIRO LUGAR)
+# ABA 2: GEMINI IA COPILOT (MÓDULO DE CONVERSA CONTINUADA)
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.caption("O Copilot cruza instantaneamente a sua dúvida com o banco de dados interno e entrega a resposta fundamentada pela IA. Continue conversando logo abaixo se precisar ajustar detalhes.")
+    st.caption("O Copilot inicia buscando no banco de dados. Se a orientação não funcionar, continue conversando normalmente neste chat para acionar o diagnóstico da IA.")
 
     if "historico_copilot" not in st.session_state:
         st.session_state.historico_copilot = []
@@ -822,7 +834,7 @@ with tabs[indice_copilot]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Digite sua dúvida técnica para o Copilot...")
+    user_input = st.chat_input("Digite a dúvida ou responda ao Copilot se deu certo / qual o novo erro...")
 
     if user_input:
         st.session_state.historico_copilot.append({"role": "user", "content": user_input})
@@ -830,7 +842,7 @@ with tabs[indice_copilot]:
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analisando banco de dados e gerando resposta com IA..."):
+            with st.spinner("Analisando base de conhecimento e processando resposta..."):
                 duvida_primeira = st.session_state.historico_copilot[0]["content"] if len(st.session_state.historico_copilot) > 0 else user_input
                 query_busca = f"{duvida_primeira} {user_input}"
 
