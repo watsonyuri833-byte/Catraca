@@ -202,6 +202,25 @@ def salvar_ocorrencia_db(dados, usuario_email):
         st.error(f"Erro ao salvar no Supabase: {e}")
         return False
 
+def atualizar_ocorrencia_db(ocor_id, dados, usuario_email):
+    try:
+        dados_limpos = limpar_dados_para_json(dados)
+        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocor_id).execute()
+        registrar_log(usuario_email, "ATUALIZOU", f"Atualizou a ocorrência ID #{ocor_id}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar ocorrência no Supabase: {e}")
+        return False
+
+def deletar_ocorrencia_db(ocor_id, usuario_email):
+    try:
+        supabase.table("ocorrencias").delete().eq("id", ocor_id).execute()
+        registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocor_id}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao excluir ocorrência no Supabase: {e}")
+        return False
+
 def salvar_manual_db(dados, usuario_email):
     try:
         dados_limpos = limpar_dados_para_json(dados)
@@ -385,7 +404,7 @@ Sua missão é responder dúvidas dos técnicos sobre sistemas de controle de ac
 Diretrizes de Atuação:
 1. Analise todo o histórico da conversa para ter o contexto do problema que está sendo resolvido.
 2. Na PRIMEIRA RESPOSTA do tópico, utilize prioritariamente as informações encontradas na BASE TÉCNICA (Manuais ou Ocorrências).
-3. Se o técnico responder na conversa indicando que A SOLUÇÃO NÃO FUNCIONOU ou der novos detalhes sobre um erro persistente, acione seu Conhecimento Técnico Geral de IA especialista em redes, hardware, protocolo TCP/IP, comunicação serial e software para dar uma solução alternativa e mais aprofundada.
+3. Se o técnico responder na conversa indicando que A SOLUÇÃO NÃO FUNCIONOU ou dar novos detalhes sobre um erro persistente, acione seu Conhecimento Técnico Geral de IA especialista em redes, hardware, protocolo TCP/IP, comunicação serial e software para dar uma solução alternativa e mais aprofundada.
 4. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
 5. Quando recorrer ao seu conhecimento geral de IA (por falha no teste anterior do técnico), avise brevemente que se trata de uma análise avançada via IA.
 """
@@ -560,7 +579,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA 1: DIAGNÓSTICOS
+# ABA 1: DIAGNÓSTICOS (Com Edição e Exclusão)
 # ==========================================
 indice_diag = abas_navegacao.index("📋 Diagnósticos")
 with tabs[indice_diag]:
@@ -669,6 +688,105 @@ with tabs[indice_diag]:
 
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
+                # ==========================================
+                # BOTÕES DE AÇÃO: EDITAR E EXCLUIR OCORRÊNCIA
+                # ==========================================
+                st.markdown("---")
+                col_acao_1, col_acao_2 = st.columns(2)
+                
+                # Gerenciador de estado para alternar o modo de edição
+                edit_key_state = f"edit_mode_{ocor_id}"
+                if edit_key_state not in st.session_state:
+                    st.session_state[edit_key_state] = False
+
+                with col_acao_1:
+                    if st.button("✏️ Editar Ocorrência Selecionada", key=f"btn_edit_{ocor_id}"):
+                        st.session_state[edit_key_state] = not st.session_state[edit_key_state]
+                        st.rerun()
+
+                with col_acao_2:
+                    if st.button("🗑️ Excluir Ocorrência Selecionada", key=f"btn_del_{ocor_id}", type="secondary"):
+                        if deletar_ocorrencia_db(ocor_id, "tecnico@actuar.group"):
+                            st.toast(f"Ocorrência #{ocor_id} excluída com sucesso!", icon="🗑️")
+                            time.sleep(0.8)
+                            st.rerun()
+
+                # Formulário Dinâmico de Edição (Exibido se o modo de edição estiver ativo)
+                if st.session_state[edit_key_state]:
+                    st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
+                    
+                    # Índices padrão seguros para os selectboxes
+                    try:
+                        idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+                    except ValueError:
+                        idx_sist = 0
+
+                    try:
+                        idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+                    except ValueError:
+                        idx_hw = 0
+
+                    status_opcoes = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
+                    try:
+                        idx_status = status_opcoes.index(status) if status in status_opcoes else 0
+                    except ValueError:
+                        idx_status = 0
+
+                    nivel_opcoes = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
+                    try:
+                        idx_nivel = nivel_opcoes.index(nivel) if nivel in nivel_opcoes else 0
+                    except ValueError:
+                        idx_nivel = 0
+
+                    with st.form(f"form_editar_ocorrencia_{ocor_id}" ):
+                        edit_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, index=idx_sist)
+                        edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw)
+                        edit_prob = st.text_input("Problema (Sintoma):", value=prob)
+                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''))
+                        edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status)
+                        edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel)
+                        
+                        edit_solucao_texto = st.text_area("Solução (Texto simples ou descritiva atual):", value=str(solucao_val))
+
+                        col_salvar_edicao, col_cancelar_edicao = st.columns(2)
+                        with col_salvar_edicao:
+                            btn_salvar_alt = st.form_submit_button("💾 Salvar Alterações")
+                        with col_cancelar_edicao:
+                            btn_fechar_alt = st.form_submit_button("❌ Fechar Edição")
+
+                        if btn_fechar_alt:
+                            st.session_state[edit_key_state] = False
+                            st.rerun()
+
+                        if btn_salvar_alt:
+                            # Mantém formato de passos em JSON se já era estruturado ou encapsula se alterado
+                            try:
+                                json.loads(edit_solucao_texto)
+                                nova_solucao_json = edit_solucao_texto
+                            except Exception:
+                                passos_convertidos = [{
+                                    "passo": 1,
+                                    "texto": edit_solucao_texto,
+                                    "anexo": None,
+                                }]
+                                nova_solucao_json = json.dumps(passos_convertidos)
+
+                            dados_atualizados = {
+                                "sistema": edit_sist,
+                                "equipamento": edit_hw,
+                                "problema": edit_prob,
+                                "motivo": edit_motivo,
+                                "solucao": nova_solucao_json,
+                                "status": edit_status,
+                                "nivel": edit_nivel,
+                            }
+
+                            if atualizar_ocorrencia_db(ocor_id, dados_atualizados, "tecnico@actuar.group"):
+                                st.session_state[edit_key_state] = False
+                                st.toast(f"Ocorrência #{ocor_id} atualizada com sucesso!", icon="✅")
+                                time.sleep(0.8)
+                                st.rerun()
+
 # ==========================================
 # ABA 2: GEMINI IA COPILOT (MÓDULO DE CONVERSA CONTINUADA)
 # ==========================================
@@ -677,7 +795,6 @@ with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
     st.caption("O Copilot inicia buscando no banco de dados. Se a orientação não funcionar, continue conversando normalmente neste chat para acionar o diagnóstico da IA.")
 
-    # Inicialização do histórico de mensagens do Copilot
     if "historico_copilot" not in st.session_state:
         st.session_state.historico_copilot = []
 
@@ -687,24 +804,19 @@ with tabs[indice_copilot]:
             st.session_state.historico_copilot = []
             st.rerun()
 
-    # Exibe todo o histórico da conversa atual
     for msg in st.session_state.historico_copilot:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Entrada do usuário para chat contínuo
     user_input = st.chat_input("Digite a dúvida ou responda ao Copilot se deu certo / qual o novo erro...")
 
     if user_input:
-        # Adiciona a pergunta do usuário ao histórico
         st.session_state.historico_copilot.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
             with st.spinner("Analisando base de conhecimento e processando resposta..."):
-                # Se for a primeira mensagem, usa a própria dúvida para pesquisar no banco
-                # Se for uma mensagem continuada (ex: "não deu certo"), usa a primeira dúvida do histórico para manter a relevância
                 duvida_primeira = st.session_state.historico_copilot[0]["content"] if len(st.session_state.historico_copilot) > 0 else user_input
                 query_busca = f"{duvida_primeira} {user_input}"
 
