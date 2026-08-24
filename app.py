@@ -106,23 +106,23 @@ st.markdown(
         border-top: 2px solid #58a6ff !important;
     }
 
-    /* ANIMAÇÃO DA CATRACA */
-    @keyframes girarCatraca {
+    /* ANIMAÇÃO DA CATRACA NA SIDEBAR */
+    @keyframes balancoCatraca {
         0% {
-            transform: rotate(0deg) scale(1);
+            transform: rotate(-6deg);
         }
         50% {
-            transform: rotate(2.5deg) scale(1.02);
+            transform: rotate(6deg);
         }
         100% {
-            transform: rotate(-2.5deg) scale(1);
+            transform: rotate(-6deg);
         }
     }
 
-    .catraca-animada img {
-        animation: girarCatraca 6s ease-in-out infinite alternate;
+    [data-testid="stSidebar"] img[alt*="catraca"] {
+        animation: balancoCatraca 3s ease-in-out infinite !important;
         border-radius: 8px;
-        filter: drop-shadow(0 4px 12px rgba(88, 166, 255, 0.15));
+        transform-origin: center center;
     }
 </style>
 """,
@@ -471,9 +471,8 @@ with st.sidebar:
     st.markdown("---")
 
     if os.path.exists("catraca.png"):
-        st.markdown('<div class="catraca-animada">', unsafe_allow_html=True)
-        st.image("catraca.png", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Importante: alt="catraca.png" garante que o CSS capture a imagem para animação
+        st.image("catraca.png", width=240, alt="catraca.png")
         st.caption(
             "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
             "Hardware Oficial<br><b>actuar.group</b></div>",
