@@ -326,7 +326,7 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
     if contexto_man:
         for m in contexto_man:
-            contexto_str += f"[MANUAL/ÁRVORE] Título: {m.get('titulo')} | Níveis: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+            contexto_str += f"[MANUAL/ÁRVORE] Título: {m.get('titulo')} | Categoria: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
     if contexto_ocor:
         for o in contexto_ocor:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
@@ -415,7 +415,7 @@ df_manuais = buscar_manuais_db()
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
-    "👩‍💻 Onboarding (Árvore 6 Níveis com Imagens)",
+    "👩‍💻 Onboarding (Legado vs EDesk)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -606,204 +606,122 @@ with tabs[indice_copilot]:
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: ONBOARDING (ÁRVORE 6 NÍVEIS COM IMAGENS EM CADA NÍVEL)
+# ABA 3: ONBOARDING (LEGADO vs EDESK COM PASTAS DE ERROS E IMAGENS)
 # ==========================================
-indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Árvore 6 Níveis com Imagens)")
+indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Legado vs EDesk)")
 with tabs[indice_onboarding]:
-    st.subheader("🌳 Sistema de Pastas Hierárquicas com Imagens por Nível")
-    st.caption("Organize seu conteúdo em múltiplos níveis de pastas aninhadas. Cada nível possui seu próprio espaço dedicado para upload de imagens e evidências visuais.")
+    st.subheader("🌳 Onboarding Técnico: Legado vs EDesk")
+    st.caption("Selecione o tipo de instalação (Legado ou EDesk) para consultar os manuais passo a passo ou explorar as pastas específicas de erros e troubleshooting.")
 
-    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Árvore Aninhada", "➕ Cadastrar Nova Pasta / Subtópico"])
+    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Manuais e Erros", "➕ Cadastrar Procedimento / Erro"])
 
     with tab_obs_ver:
         if df_manuais.empty:
-            st.info("Nenhum item cadastrado na árvore ainda. Utilize a aba 'Cadastrar Nova Pasta / Subtópico' para iniciar.")
+            st.info("Nenhum item cadastrado na base ainda. Utilize a aba 'Cadastrar Procedimento / Erro' para adicionar.")
         else:
             df_m = df_manuais.copy()
             for col_n in ["sistema_produto", "hardware", "nivel_3", "nivel_4", "nivel_5", "nivel_1_img", "nivel_2_img", "nivel_3_img", "nivel_4_img", "nivel_5_img"]:
                 if col_n not in df_m.columns:
                     df_m[col_n] = None
 
-            n1_list = df_m["sistema_produto"].dropna().unique()
-            for n1 in sorted(n1_list):
-                with st.expander(f"📁 **[Nível 1]** {n1}", expanded=True):
+            # Nível 1: Legado ou EDesk
+            tipos_instalacao = [t for t in df_m["sistema_produto"].dropna().unique() if t in ["Legado", "EDesk"]]
+            outros_tipos = [t for t in df_m["sistema_produto"].dropna().unique() if t not in ["Legado", "EDesk"]]
+            
+            todas_opcoes_n1 = tipos_instalacao + outros_tipos
+
+            for n1 in sorted(todas_opcoes_n1):
+                icone_pasta = "📂 [Instalação Principal]" if n1 in ["Legado", "EDesk"] else "📁"
+                with st.expander(f"{icone_pasta} {n1}", expanded=True):
                     df_n1 = df_m[df_m["sistema_produto"] == n1]
-                    
-                    # Mostrar imagem do Nível 1 se houver
-                    first_row_n1 = df_n1.iloc[0]
-                    renderizar_bloco_imagens(first_row_n1.get("nivel_1_img"), "🖼️ Imagens do Nível 1:")
+                    renderizar_bloco_imagens(df_n1.iloc[0].get("nivel_1_img"), f"🖼️ Imagens Gerais - {n1}:")
 
-                    n2_list = [x for x in df_n1["hardware"].dropna().unique() if str(x).strip() != ""]
-                    
-                    if not n2_list:
-                        for _, row_item in df_n1[df_n1["hardware"].isna() | (df_n1["hardware"] == "")].iterrows():
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🌿 **{row_item.get('titulo')}**")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {row_item.get('conteudo')}")
-                            renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Imagens do Tópico:")
-                            if st.button("🗑️ Excluir", key=f"del_lvl1_{row_item.get('id')}"):
-                                deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
-                                st.rerun()
-                    
-                    for n2 in sorted(n2_list):
-                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📂 **[Nível 2]** `{n2}`")
-                        df_n2 = df_n1[df_n1["hardware"] == n2]
-                        renderizar_bloco_imagens(df_n2.iloc[0].get("nivel_2_img"), "🖼️ Imagens do Nível 2:")
-                        
-                        n3_list = [x for x in df_n2["nivel_3"].dropna().unique() if str(x).strip() != ""]
+                    # Vamos agrupar visualmente entre o Manual de Instalação e a Pasta de Erros
+                    df_manuais_inst = df_n1[df_n1["hardware"] == "Manual de Instalação"]
+                    df_erros_pasta = df_n1[df_n1["hardware"] == "Erros e Soluções"]
+                    df_outros = df_n1[~df_n1["hardware"].isin(["Manual de Instalação", "Erros e Soluções"])]
 
-                        for n3 in sorted(n3_list):
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📁 **[Nível 3]** `{n3}`")
-                            df_n3 = df_n2[df_n2["nivel_3"] == n3]
-                            renderizar_bloco_imagens(df_n3.iloc[0].get("nivel_3_img"), "🖼️ Imagens do Nível 3:")
-                            
-                            n4_list = [x for x in df_n3["nivel_4"].dropna().unique() if str(x).strip() != ""]
-
-                            for n4 in sorted(n4_list):
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📂 **[Nível 4]** `{n4}`")
-                                df_n4 = df_n3[df_n3["nivel_4"] == n4]
-                                renderizar_bloco_imagens(df_n4.iloc[0].get("nivel_4_img"), "🖼️ Imagens do Nível 4:")
-                                
-                                n5_list = [x for x in df_n4["nivel_5"].dropna().unique() if str(x).strip() != ""]
-
-                                for n5 in sorted(n5_list):
-                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📁 **[Nível 5]** `{n5}`")
-                                    df_n5 = df_n4[df_n4["nivel_5"] == n5]
-                                    renderizar_bloco_imagens(df_n5.iloc[0].get("nivel_5_img"), "🖼️ Imagens do Nível 5:")
-
-                                    for _, item in df_n5.iterrows():
-                                        it_id = item.get("id")
-                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Nível 6 / Tópico] {item.get('titulo')}**")
-                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
-                                        renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
-                                        if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
-                                            deletar_manual_db(it_id, "tecnico@actuar.group")
-                                            st.rerun()
-
-                                tr_n4 = df_n4[df_n4["nivel_5"].isna() | (df_n4["nivel_5"] == "")]
-                                for _, item in tr_n4.iterrows():
-                                    it_id = item.get("id")
-                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
-                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
-                                    renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
-                                    if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
-                                        deletar_manual_db(it_id, "tecnico@actuar.group")
-                                        st.rerun()
-
-                            tr_n3 = df_n3[df_n3["nivel_4"].isna() | (df_n3["nivel_4"] == "")]
-                            for _, item in tr_n3.iterrows():
-                                it_id = item.get("id")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
-                                renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
-                                if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
-                                    deletar_manual_db(it_id, "tecnico@actuar.group")
+                    # Seção 1: Manual de Instalação
+                    if not df_manuais_inst.empty:
+                        st.markdown("### 📘 Manual de Instalação")
+                        for _, row_inst in df_manuais_inst.iterrows():
+                            with st.container(border=True):
+                                st.markdown(f"**📌 {row_inst.get('titulo')}**")
+                                st.markdown(f"{row_inst.get('conteudo')}")
+                                renderizar_bloco_imagens(row_inst.get('anexo_url'), "🖼️ Evidências / Imagens de Instalação:")
+                                if st.button("🗑️ Excluir Manual", key=f"del_inst_{row_inst.get('id')}"):
+                                    deletar_manual_db(row_inst.get('id'), "tecnico@actuar.group")
                                     st.rerun()
 
-                        tr_n2 = df_n2[df_n2["nivel_3"].isna() | (df_n2["nivel_3"] == "")]
-                        for _, item in tr_n2.iterrows():
-                            it_id = item.get("id")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
-                            renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
-                            if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
-                                deletar_manual_db(it_id, "tecnico@actuar.group")
+                    # Seção 2: Pasta de Erros
+                    if not df_erros_pasta.empty:
+                        st.markdown("### ⚠️ Pasta de Erros e Soluções")
+                        for _, row_erro in df_erros_pasta.iterrows():
+                            with st.container(border=True):
+                                st.markdown(f"🚨 **Erro Reportado:** `{row_erro.get('titulo')}`")
+                                st.markdown(f"**Como resolver:**\n{row_erro.get('conteudo')}")
+                                renderizar_bloco_imagens(row_erro.get('anexo_url'), "🖼️ Imagens / Evidências do Erro:")
+                                if st.button("🗑️ Excluir Erro", key=f"del_erro_{row_erro.get('id')}"):
+                                    deletar_manual_db(row_erro.get('id'), "tecnico@actuar.group")
+                                    st.rerun()
+
+                    # Outros itens caso existam
+                    for _, row_item in df_outros.iterrows():
+                        with st.container(border=True):
+                            st.markdown(f"🌿 **{row_item.get('titulo')}** (Subpasta: {row_item.get('hardware')})")
+                            st.markdown(f"{row_item.get('conteudo')}")
+                            renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Imagens:")
+                            if st.button("🗑️ Excluir", key=f"del_outro_{row_item.get('id')}"):
+                                deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
                                 st.rerun()
+
                     st.markdown("---")
 
     with tab_obs_cad:
-        st.markdown("### ➕ Adicionar Novo Item na Hierarquia de Pastas")
-        st.caption("Preencha os níveis desejados. Cada nível possui upload dedicado para imagens e evidências.")
+        st.markdown("### ➕ Cadastrar Novo Manual ou Erro na Pasta")
+        st.caption("Escolha se o registro pertence ao **Legado** ou **EDesk**, e defina se é o **Manual de Instalação** ou um item da **Pasta de Erros**.")
 
-        with st.form("form_novo_onb_6_niveis_com_imgs", clear_on_submit=True):
+        with st.form("form_novo_onb_legado_edesk", clear_on_submit=True):
             
-            # NÍVEL 1
-            st.markdown("#### 📁 1º Nível - Pasta Principal")
-            col_n1_a, col_n1_b = st.columns([2, 1])
-            with col_n1_a:
-                lvl_1 = st.text_input("Nome da Pasta Principal (Obrigatório):", placeholder="Ex: Infraestrutura de Rede", key="f_lvl_1")
-            with col_n1_b:
-                files_lvl_1 = st.file_uploader("🖼️ Imagem Nível 1", accept_multiple_files=True, key="f_img_1")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                tipo_escolhido = st.selectbox("1º Nível (Pasta Principal):", ["Legado", "EDesk", "Outro"], key="cad_tipo_principal")
+            with col_c2:
+                sub_categoria = st.selectbox("Tipo de Conteúdo:", ["Manual de Instalação", "Erros e Soluções", "Subtópico Adicional"], key="cad_sub_cat")
+
+            if tipo_escolhido == "Outro":
+                tipo_escolhido = st.text_input("Digite o nome da Pasta Principal:", placeholder="Ex: Sistema X")
 
             st.markdown("---")
-
-            # NÍVEL 2
-            st.markdown("#### 📂 2º Nível - Subpasta (Pasta Filha)")
-            col_n2_a, col_n2_b = st.columns([2, 1])
-            with col_n2_a:
-                lvl_2 = st.text_input("Nome da Subpasta (Opcional):", placeholder="Ex: Configuração de Roteadores / VPN", key="f_lvl_2")
-            with col_n2_b:
-                files_lvl_2 = st.file_uploader("🖼️ Imagem Nível 2", accept_multiple_files=True, key="f_img_2")
+            files_nivel_1 = st.file_uploader("🖼️ Imagem Geral da Pasta Principal (Opcional)", accept_multiple_files=True, key="cad_img_geral")
 
             st.markdown("---")
-
-            # NÍVEL 3
-            st.markdown("#### 📂 3º Nível - Subpasta / Módulo")
-            col_n3_a, col_n3_b = st.columns([2, 1])
-            with col_n3_a:
-                lvl_3 = st.text_input("Nome do Subtópico / Condição (Opcional):", placeholder="Ex: Se der erro de gateway ao conectar...", key="f_lvl_3")
-            with col_n3_b:
-                files_lvl_3 = st.file_uploader("🖼️ Imagem Nível 3", accept_multiple_files=True, key="f_img_3")
+            titulo_item = st.text_input("Título do Manual ou Descrição do Erro:", placeholder="Ex: Erro de Timeout ao conectar no banco de dados / Passo a passo de instalação...", key="cad_titulo_item")
+            
+            descricao_item = st.text_area("📄 Descrição detalhada / Passo a passo de como resolver:", placeholder="Explique detalhadamente o procedimento ou a solução para este erro...", height=150, key="cad_desc_item")
+            
+            files_item = st.file_uploader("📷 Anexar Imagens / Evidências (para este manual ou erro):", accept_multiple_files=True, key="cad_files_item")
 
             st.markdown("---")
-
-            # NÍVEL 4
-            st.markdown("#### 📂 4º Nível - Categoria Profunda")
-            col_n4_a, col_n4_b = st.columns([2, 1])
-            with col_n4_a:
-                lvl_4 = st.text_input("Nome do Nível 4 (Opcional):", placeholder="Ex: Regras de Firewall / Portas", key="f_lvl_4")
-            with col_n4_b:
-                files_lvl_4 = st.file_uploader("🖼️ Imagem Nível 4", accept_multiple_files=True, key="f_img_4")
-
-            st.markdown("---")
-
-            # NÍVEL 5
-            st.markdown("#### 📂 5º Nível - Detalhamento Adicional")
-            col_n5_a, col_n5_b = st.columns([2, 1])
-            with col_n5_a:
-                lvl_5 = st.text_input("Nome do Nível 5 (Opcional):", placeholder="Ex: Liberação de IP Externo", key="f_lvl_5")
-            with col_n5_b:
-                files_lvl_5 = st.file_uploader("🖼️ Imagem Nível 5", accept_multiple_files=True, key="f_img_5")
-
-            st.markdown("---")
-
-            # NÍVEL 6 / TÓPICO FINAL
-            st.markdown("#### 🌿 6º Nível - Título / Tópico Final e Descrição")
-            lvl_6_titulo = st.text_input("Título do Tópico Final (Obrigatório):", placeholder="Ex: Procedimento de validação e testes finais", key="f_lvl_6_titulo")
-            desc_input = st.text_area("📄 Descrição detalhada do procedimento (passo a passo):", placeholder="Explique detalhadamente o procedimento desta pasta...", height=140, key="f_desc")
-            files_input_topico = st.file_uploader("📷 Anexar Imagens / Evidências para este Subtópico Final:", accept_multiple_files=True, key="files_onb_topico")
-
-            st.markdown("---")
-            if st.form_submit_button("💾 Salvar na Árvore"):
-                if lvl_1 and lvl_6_titulo and desc_input:
-                    # Upload separado para cada nível
-                    url_img_1 = upload_multiplos_arquivos(files_lvl_1) if files_lvl_1 else None
-                    url_img_2 = upload_multiplos_arquivos(files_lvl_2) if files_lvl_2 else None
-                    url_img_3 = upload_multiplos_arquivos(files_lvl_3) if files_lvl_3 else None
-                    url_img_4 = upload_multiplos_arquivos(files_lvl_4) if files_lvl_4 else None
-                    url_img_5 = upload_multiplos_arquivos(files_lvl_5) if files_lvl_5 else None
-                    url_anexos_topico = upload_multiplos_arquivos(files_input_topico) if files_input_topico else None
+            if st.form_submit_button("💾 Salvar na Pasta"):
+                if tipo_escolhido and titulo_item and descricao_item:
+                    url_img_geral = upload_multiplos_arquivos(files_nivel_1) if files_nivel_1 else None
+                    url_anexos_item = upload_multiplos_arquivos(files_item) if files_item else None
                     
-                    dados_onb = {
-                        "sistema_produto": lvl_1.strip(),
-                        "hardware": lvl_2.strip() if lvl_2 else None,
-                        "nivel_3": lvl_3.strip() if lvl_3 else None,
-                        "nivel_4": lvl_4.strip() if lvl_4 else None,
-                        "nivel_5": lvl_5.strip() if lvl_5 else None,
-                        "titulo": lvl_6_titulo.strip(),
-                        "conteudo": desc_input.strip(),
-                        "nivel_1_img": url_img_1,
-                        "nivel_2_img": url_img_2,
-                        "nivel_3_img": url_img_3,
-                        "nivel_4_img": url_img_4,
-                        "nivel_5_img": url_img_5,
-                        "anexo_url": url_anexos_topico
+                    dados_cadastro = {
+                        "sistema_produto": str(tipo_escolhido).strip(),
+                        "hardware": sub_categoria, # Usado para separar Manual de Instalação vs Erros e Soluções
+                        "titulo": titulo_item.strip(),
+                        "conteudo": descricao_item.strip(),
+                        "nivel_1_img": url_img_geral,
+                        "anexo_url": url_anexos_item
                     }
                     
-                    if salvar_manual_db(dados_onb, "tecnico@actuar.group"):
-                        st.toast("Item adicionado com sucesso na árvore com todas as imagens!", icon="🎉")
+                    if salvar_manual_db(dados_cadastro, "tecnico@actuar.group"):
+                        st.toast("Cadastrado com sucesso na pasta selecionada!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha ao menos a Pasta Principal (Nível 1), o Título Final e a Descrição.")
+                    st.error("Preencha a Pasta Principal, o Título e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
@@ -941,7 +859,7 @@ with tabs[indice_export]:
     if not df_manuais.empty:
         conteudo_txt += "--- SEÇÃO 1: ÁRVORE DE PASTAS ---\n"
         for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Nível 1: {row.get('sistema_produto')} | Nível 2: {row.get('hardware')} | Nível 3: {row.get('nivel_3')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
+            conteudo_txt += f"Pasta: {row.get('sistema_produto')} | Categoria: {row.get('hardware')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
 
     if not df_ocorrencias.empty:
         conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
