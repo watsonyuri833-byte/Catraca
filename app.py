@@ -171,7 +171,7 @@ def buscar_ocorrencias_db():
             if col not in df.columns:
                 df[col] = None
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 def buscar_manuais_db():
@@ -200,35 +200,6 @@ def registrar_log(usuario_email, acao, detalhes):
 
 def limpar_dados_para_json(dados):
     return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
-
-def salvar_ocorrencia_db(dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "CRIOU", f"Cadastrou a ocorrência: {dados.get('problema')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar no Supabase: {e}")
-        return False
-
-def atualizar_ocorrencia_db(ocor_id, dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocor_id).execute()
-        registrar_log(usuario_email, "ATUALIZOU", f"Atualizou a ocorrência ID #{ocor_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao atualizar ocorrência no Supabase: {e}")
-        return False
-
-def deletar_ocorrencia_db(ocor_id, usuario_email):
-    try:
-        supabase.table("ocorrencias").delete().eq("id", ocor_id).execute()
-        registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocor_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao excluir ocorrência no Supabase: {e}")
-        return False
 
 def salvar_manual_db(dados, usuario_email):
     try:
@@ -274,7 +245,7 @@ def upload_arquivo_unico(file):
         else:
             u = str(url_res) if url_res else None
         return u
-    except Exception as e:
+    except Exception:
         return None
 
 def upload_multiplos_arquivos(files):
@@ -287,6 +258,23 @@ def upload_multiplos_arquivos(files):
             urls.append(u)
     urls = list(dict.fromkeys(urls))
     return ",".join(urls) if urls else None
+
+def renderizar_bloco_imagens(urls_str, titulo_secao=""):
+    if urls_str and pd.notna(urls_str) and str(urls_str).strip() != "":
+        urls = [u.strip() for u in str(urls_str).split(",") if u.strip()]
+        if urls:
+            if titulo_secao:
+                st.markdown(f"**{titulo_secao}**")
+            for idx, url_file in enumerate(urls):
+                nome_arquivo = url_file.split("/")[-1].split("?")[0]
+                nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
+                if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                    try:
+                        st.image(url_file, width=450, caption=f"Imagem {idx + 1}: {nome_exibicao}")
+                    except Exception:
+                        st.markdown(f"📥 Baixar Arquivo {idx + 1}: [**{nome_exibicao}**]({url_file})")
+                else:
+                    st.markdown(f"📄 Arquivo {idx + 1}: [**{nome_exibicao}**]({url_file})")
 
 # ==========================================
 # 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA
@@ -338,7 +326,7 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
     if contexto_man:
         for m in contexto_man:
-            contexto_str += f"[MANUAL/ÁRVORE] Título: {m.get('titulo')} | Caminho: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+            contexto_str += f"[MANUAL/ÁRVORE] Título: {m.get('titulo')} | Níveis: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
     if contexto_ocor:
         for o in contexto_ocor:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
@@ -427,7 +415,7 @@ df_manuais = buscar_manuais_db()
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
-    "👩‍💻 Onboarding (Árvore de Pastas)",
+    "👩‍💻 Onboarding (Árvore 6 Níveis com Imagens)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -439,24 +427,8 @@ abas_navegacao = [
 tabs = st.tabs(abas_navegacao)
 
 def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
-        urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
-        urls_problema = list(dict.fromkeys(urls_problema))
-
-        if urls_problema:
-            with st.expander(f"📎 Ver Evidências do Problema ({len(urls_problema)} arquivo(s))", expanded=False):
-                for idx_prob, url_file in enumerate(urls_problema):
-                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                    nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                    if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                        try:
-                            st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
-                        except Exception:
-                            st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-                    else:
-                        st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-            st.markdown("---")
-
+    renderizar_bloco_imagens(anexo_global, "📎 Ver Evidências do Problema")
+    
     passos = []
     try:
         if solucao_data and str(solucao_data).strip().startswith("["):
@@ -472,21 +444,9 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
             url_passo = item.get("anexo", None)
 
             st.markdown(f"**{num_passo}º** {texto_passo}")
-
-            if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
-                urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
-                if urls_passo:
-                    with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
-                        for idx_f, url_file in enumerate(urls_passo):
-                            nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                            nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                            if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                                try:
-                                    st.image(url_file, width=450, caption=f"Passo {num_passo}: {nome_exibicao}")
-                                except Exception:
-                                    st.markdown(f"📥 Baixar: [**{nome_exibicao}**]({url_file})")
-                            else:
-                                st.markdown(f"📄 Arquivo: [**{nome_exibicao}**]({url_file})")
+            if url_passo:
+                with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
+                    renderizar_bloco_imagens(url_passo)
             st.markdown("")
     else:
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
@@ -601,117 +561,6 @@ with tabs[indice_diag]:
 
                 renderizar_solucao_estruturada(solucao_val, anexo)
 
-                st.markdown("---")
-                col_acao_1, col_acao_2 = st.columns(2)
-                
-                edit_key_state = f"edit_mode_{ocor_id}"
-                if edit_key_state not in st.session_state:
-                    st.session_state[edit_key_state] = False
-
-                with col_acao_1:
-                    if st.button("✏️ Editar Ocorrência Selecionada", key=f"btn_edit_{ocor_id}"):
-                        st.session_state[edit_key_state] = not st.session_state[edit_key_state]
-                        st.rerun()
-
-                with col_acao_2:
-                    if st.button("🗑️ Excluir Ocorrência Selecionada", key=f"btn_del_{ocor_id}", type="secondary"):
-                        if deletar_ocorrencia_db(ocor_id, "tecnico@actuar.group"):
-                            st.toast(f"Ocorrência #{ocor_id} excluída com sucesso!", icon="🗑️")
-                            time.sleep(0.8)
-                            st.rerun()
-
-                if st.session_state[edit_key_state]:
-                    st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
-                    
-                    try:
-                        idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
-                    except ValueError:
-                        idx_hw = 0
-
-                    status_opcoes = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
-                    try:
-                        idx_status = status_opcoes.index(status) if status in status_opcoes else 0
-                    except ValueError:
-                        idx_status = 0
-
-                    nivel_opcoes = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
-                    try:
-                        idx_nivel = nivel_opcoes.index(nivel) if nivel in nivel_opcoes else 0
-                    except ValueError:
-                        idx_nivel = 0
-
-                    passos_atuais = []
-                    try:
-                        if solucao_val and str(solucao_val).strip().startswith("["):
-                            passos_atuais = json.loads(str(solucao_val))
-                    except Exception:
-                        passos_atuais = []
-
-                    with st.form(f"form_editar_ocorrencia_{ocor_id}"):
-                        col_e1, col_e2 = st.columns(2)
-                        with col_e1:
-                            edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"edit_hw_{ocor_id}")
-                            edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status, key=f"edit_st_{ocor_id}")
-                        with col_e2:
-                            edit_sist = st.text_input("💻 Sistema / Módulo:", value=sist, key=f"edit_sis_{ocor_id}")
-                            edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel, key=f"edit_niv_{ocor_id}")
-
-                        edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"edit_prob_{ocor_id}")
-                        edit_files_prob = st.file_uploader("📎 Novos Arquivos / Evidências do Problema:", accept_multiple_files=True, key=f"edit_prob_files_{ocor_id}")
-                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"edit_motivo_{ocor_id}")
-
-                        st.markdown("### 🛠️ Passos da Solução (Editar ou Adicionar)")
-                        passos_editados_lista = []
-                        
-                        for p_idx in range(1, 5):
-                            passo_existente_obj = next((p for p in passos_atuais if p.get("passo") == p_idx), None)
-                            texto_padrao_passo = passo_existente_obj.get("texto", "") if passo_existente_obj else ""
-                            anexo_padrao_passo = passo_existente_obj.get("anexo", None) if passo_existente_obj else None
-
-                            col_p_txt, col_p_file = st.columns([2, 1])
-                            with col_p_txt:
-                                txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=texto_padrao_passo, key=f"edit_p_txt_{ocor_id}_{p_idx}")
-                            with col_p_file:
-                                files_p = st.file_uploader(f"Atualizar Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_idx}")
-
-                            if txt_p.strip():
-                                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else anexo_padrao_passo
-                                passos_editados_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
-
-                        col_salvar_edicao, col_cancelar_edicao = st.columns(2)
-                        with col_salvar_edicao:
-                            btn_salvar_alt = st.form_submit_button("💾 Salvar Alterações")
-                        with col_cancelar_edicao:
-                            btn_fechar_alt = st.form_submit_button("❌ Fechar Edição")
-
-                        if btn_fechar_alt:
-                            st.session_state[edit_key_state] = False
-                            st.rerun()
-
-                        if btn_salvar_alt:
-                            if edit_prob and edit_motivo and passos_editados_lista:
-                                json_solucao_editada = json.dumps(passos_editados_lista)
-                                url_anexo_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else anexo
-
-                                dados_atualizados = {
-                                    "sistema": edit_sist,
-                                    "equipamento": edit_hw,
-                                    "problema": edit_prob,
-                                    "motivo": edit_motivo,
-                                    "solucao": json_solucao_editada,
-                                    "status": edit_status,
-                                    "nivel": edit_nivel,
-                                    "anexo_url": url_anexo_prob,
-                                }
-
-                                if atualizar_ocorrencia_db(ocor_id, dados_atualizados, "tecnico@actuar.group"):
-                                    st.session_state[edit_key_state] = False
-                                    st.toast(f"Ocorrência #{ocor_id} atualizada com sucesso!", icon="✅")
-                                    time.sleep(0.8)
-                                    st.rerun()
-                            else:
-                                st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
-
 # ==========================================
 # ABA 2: GEMINI IA COPILOT
 # ==========================================
@@ -757,85 +606,204 @@ with tabs[indice_copilot]:
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: ONBOARDING (ÁRVORE DE PASTAS EM CASCATA)
+# ABA 3: ONBOARDING (ÁRVORE 6 NÍVEIS COM IMAGENS EM CADA NÍVEL)
 # ==========================================
-indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Árvore de Pastas)")
+indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Árvore 6 Níveis com Imagens)")
 with tabs[indice_onboarding]:
-    st.subheader("🌳 Sistema de Pastas Hierárquicas (Pasta ➔ Subpasta ➔ Subtópico)")
-    st.caption("Organize seu conteúdo em múltiplos níveis de pastas aninhadas. Você define livremente os nomes de cada nível.")
+    st.subheader("🌳 Sistema de Pastas Hierárquicas com Imagens por Nível")
+    st.caption("Organize seu conteúdo em múltiplos níveis de pastas aninhadas. Cada nível possui seu próprio espaço dedicado para upload de imagens e evidências visuais.")
 
     tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Árvore Aninhada", "➕ Cadastrar Nova Pasta / Subtópico"])
 
     with tab_obs_ver:
         if df_manuais.empty:
-            st.info("Nenhum item cadastrado na árvore ainda. Utilize a aba 'Cadastrar Nova Pasta / Subtópico' para criar sua estrutura.")
+            st.info("Nenhum item cadastrado na árvore ainda. Utilize a aba 'Cadastrar Nova Pasta / Subtópico' para iniciar.")
         else:
-            # Nível 1: Tema Principal (sistema_produto)
-            temas_principais = df_manuais["sistema_produto"].dropna().unique()
-            
-            for tema in sorted(temas_principais):
-                with st.expander(f"📁 **Tema Principal:** {tema}", expanded=True):
-                    df_tema = df_manuais[df_manuais["sistema_produto"] == tema]
+            df_m = df_manuais.copy()
+            for col_n in ["sistema_produto", "hardware", "nivel_3", "nivel_4", "nivel_5", "nivel_1_img", "nivel_2_img", "nivel_3_img", "nivel_4_img", "nivel_5_img"]:
+                if col_n not in df_m.columns:
+                    df_m[col_n] = None
+
+            n1_list = df_m["sistema_produto"].dropna().unique()
+            for n1 in sorted(n1_list):
+                with st.expander(f"📁 **[Nível 1]** {n1}", expanded=True):
+                    df_n1 = df_m[df_m["sistema_produto"] == n1]
                     
-                    # Nível 2: Subpasta / Categoria secundária (armazenado no campo hardware)
-                    subpastas = df_tema["hardware"].dropna().unique()
+                    # Mostrar imagem do Nível 1 se houver
+                    first_row_n1 = df_n1.iloc[0]
+                    renderizar_bloco_imagens(first_row_n1.get("nivel_1_img"), "🖼️ Imagens do Nível 1:")
+
+                    n2_list = [x for x in df_n1["hardware"].dropna().unique() if str(x).strip() != ""]
                     
-                    for subpasta in sorted(subpastas):
-                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📂 **Subpasta:** `{subpasta}`")
-                        df_sub = df_tema[df_tema["hardware"] == subpasta]
+                    if not n2_list:
+                        for _, row_item in df_n1[df_n1["hardware"].isna() | (df_n1["hardware"] == "")].iterrows():
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🌿 **{row_item.get('titulo')}**")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {row_item.get('conteudo')}")
+                            renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Imagens do Tópico:")
+                            if st.button("🗑️ Excluir", key=f"del_lvl1_{row_item.get('id')}"):
+                                deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
+                                st.rerun()
+                    
+                    for n2 in sorted(n2_list):
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📂 **[Nível 2]** `{n2}`")
+                        df_n2 = df_n1[df_n1["hardware"] == n2]
+                        renderizar_bloco_imagens(df_n2.iloc[0].get("nivel_2_img"), "🖼️ Imagens do Nível 2:")
                         
-                        # Nível 3: Subtópicos finais e instruções (título e conteúdo)
-                        for _, row_item in df_sub.iterrows():
-                            item_id = row_item.get("id")
-                            subtopico = row_item.get("titulo")
-                            descricao = row_item.get("conteudo")
+                        n3_list = [x for x in df_n2["nivel_3"].dropna().unique() if str(x).strip() != ""]
+
+                        for n3 in sorted(n3_list):
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📁 **[Nível 3]** `{n3}`")
+                            df_n3 = df_n2[df_n2["nivel_3"] == n3]
+                            renderizar_bloco_imagens(df_n3.iloc[0].get("nivel_3_img"), "🖼️ Imagens do Nível 3:")
                             
-                            col_tr_l, col_tr_r = st.columns([5, 1])
-                            with col_tr_l:
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;┗━━ 🌿 **{subtopico}**")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Instruções:* {descricao}")
-                            with col_tr_r:
-                                if st.button("🗑️ Excluir", key=f"del_tree_{item_id}"):
-                                    if deletar_manual_db(item_id, "tecnico@actuar.group"):
-                                        st.toast("Item excluído com sucesso!", icon="🗑️")
+                            n4_list = [x for x in df_n3["nivel_4"].dropna().unique() if str(x).strip() != ""]
+
+                            for n4 in sorted(n4_list):
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📂 **[Nível 4]** `{n4}`")
+                                df_n4 = df_n3[df_n3["nivel_4"] == n4]
+                                renderizar_bloco_imagens(df_n4.iloc[0].get("nivel_4_img"), "🖼️ Imagens do Nível 4:")
+                                
+                                n5_list = [x for x in df_n4["nivel_5"].dropna().unique() if str(x).strip() != ""]
+
+                                for n5 in sorted(n5_list):
+                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📁 **[Nível 5]** `{n5}`")
+                                    df_n5 = df_n4[df_n4["nivel_5"] == n5]
+                                    renderizar_bloco_imagens(df_n5.iloc[0].get("nivel_5_img"), "🖼️ Imagens do Nível 5:")
+
+                                    for _, item in df_n5.iterrows():
+                                        it_id = item.get("id")
+                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Nível 6 / Tópico] {item.get('titulo')}**")
+                                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
+                                        renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
+                                        if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
+                                            deletar_manual_db(it_id, "tecnico@actuar.group")
+                                            st.rerun()
+
+                                tr_n4 = df_n4[df_n4["nivel_5"].isna() | (df_n4["nivel_5"] == "")]
+                                for _, item in tr_n4.iterrows():
+                                    it_id = item.get("id")
+                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
+                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
+                                    renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
+                                    if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
+                                        deletar_manual_db(it_id, "tecnico@actuar.group")
                                         st.rerun()
-                            st.markdown("")
-                        st.markdown("---")
+
+                            tr_n3 = df_n3[df_n3["nivel_4"].isna() | (df_n3["nivel_4"] == "")]
+                            for _, item in tr_n3.iterrows():
+                                it_id = item.get("id")
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
+                                renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
+                                if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
+                                    deletar_manual_db(it_id, "tecnico@actuar.group")
+                                    st.rerun()
+
+                        tr_n2 = df_n2[df_n2["nivel_3"].isna() | (df_n2["nivel_3"] == "")]
+                        for _, item in tr_n2.iterrows():
+                            it_id = item.get("id")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🌿 **[Tópico Final] {item.get('titulo')}**")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Descrição:* {item.get('conteudo')}")
+                            renderizar_bloco_imagens(item.get('anexo_url'), "🖼️ Imagens do Tópico Final:")
+                            if st.button("🗑️ Excluir", key=f"del_item_{it_id}"):
+                                deletar_manual_db(it_id, "tecnico@actuar.group")
+                                st.rerun()
+                    st.markdown("---")
 
     with tab_obs_cad:
         st.markdown("### ➕ Adicionar Novo Item na Hierarquia de Pastas")
-        with st.form("form_novo_onb_arvore_profunda", clear_on_submit=True):
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                pasta_principal = st.text_input("📁 1º Nível - Pasta Principal:", placeholder="Ex: Infraestrutura de Rede")
-            with col_c2:
-                subpasta_nivel = st.text_input("📂 2º Nível - Subpasta (Pasta Filha):", placeholder="Ex: Configuração de Roteadores / VPN")
+        st.caption("Preencha os níveis desejados. Cada nível possui upload dedicado para imagens e evidências.")
 
-            subtopico_nome = st.text_input("🌿 3º Nível - Nome do Subtópico / Condição:", placeholder="Ex: Se der erro de gateway ao conectar...")
+        with st.form("form_novo_onb_6_niveis_com_imgs", clear_on_submit=True):
             
-            desc_input = st.text_area("📄 Descrição detalhada do procedimento (passo a passo):", placeholder="Explique detalhadamente o procedimento desta pasta...", height=150)
-            
-            files_input = st.file_uploader("📷 Anexar Imagens / Evidências para este Subtópico:", accept_multiple_files=True, key="files_onb_profunda")
+            # NÍVEL 1
+            st.markdown("#### 📁 1º Nível - Pasta Principal")
+            col_n1_a, col_n1_b = st.columns([2, 1])
+            with col_n1_a:
+                lvl_1 = st.text_input("Nome da Pasta Principal (Obrigatório):", placeholder="Ex: Infraestrutura de Rede", key="f_lvl_1")
+            with col_n1_b:
+                files_lvl_1 = st.file_uploader("🖼️ Imagem Nível 1", accept_multiple_files=True, key="f_img_1")
 
+            st.markdown("---")
+
+            # NÍVEL 2
+            st.markdown("#### 📂 2º Nível - Subpasta (Pasta Filha)")
+            col_n2_a, col_n2_b = st.columns([2, 1])
+            with col_n2_a:
+                lvl_2 = st.text_input("Nome da Subpasta (Opcional):", placeholder="Ex: Configuração de Roteadores / VPN", key="f_lvl_2")
+            with col_n2_b:
+                files_lvl_2 = st.file_uploader("🖼️ Imagem Nível 2", accept_multiple_files=True, key="f_img_2")
+
+            st.markdown("---")
+
+            # NÍVEL 3
+            st.markdown("#### 📂 3º Nível - Subpasta / Módulo")
+            col_n3_a, col_n3_b = st.columns([2, 1])
+            with col_n3_a:
+                lvl_3 = st.text_input("Nome do Subtópico / Condição (Opcional):", placeholder="Ex: Se der erro de gateway ao conectar...", key="f_lvl_3")
+            with col_n3_b:
+                files_lvl_3 = st.file_uploader("🖼️ Imagem Nível 3", accept_multiple_files=True, key="f_img_3")
+
+            st.markdown("---")
+
+            # NÍVEL 4
+            st.markdown("#### 📂 4º Nível - Categoria Profunda")
+            col_n4_a, col_n4_b = st.columns([2, 1])
+            with col_n4_a:
+                lvl_4 = st.text_input("Nome do Nível 4 (Opcional):", placeholder="Ex: Regras de Firewall / Portas", key="f_lvl_4")
+            with col_n4_b:
+                files_lvl_4 = st.file_uploader("🖼️ Imagem Nível 4", accept_multiple_files=True, key="f_img_4")
+
+            st.markdown("---")
+
+            # NÍVEL 5
+            st.markdown("#### 📂 5º Nível - Detalhamento Adicional")
+            col_n5_a, col_n5_b = st.columns([2, 1])
+            with col_n5_a:
+                lvl_5 = st.text_input("Nome do Nível 5 (Opcional):", placeholder="Ex: Liberação de IP Externo", key="f_lvl_5")
+            with col_n5_b:
+                files_lvl_5 = st.file_uploader("🖼️ Imagem Nível 5", accept_multiple_files=True, key="f_img_5")
+
+            st.markdown("---")
+
+            # NÍVEL 6 / TÓPICO FINAL
+            st.markdown("#### 🌿 6º Nível - Título / Tópico Final e Descrição")
+            lvl_6_titulo = st.text_input("Título do Tópico Final (Obrigatório):", placeholder="Ex: Procedimento de validação e testes finais", key="f_lvl_6_titulo")
+            desc_input = st.text_area("📄 Descrição detalhada do procedimento (passo a passo):", placeholder="Explique detalhadamente o procedimento desta pasta...", height=140, key="f_desc")
+            files_input_topico = st.file_uploader("📷 Anexar Imagens / Evidências para este Subtópico Final:", accept_multiple_files=True, key="files_onb_topico")
+
+            st.markdown("---")
             if st.form_submit_button("💾 Salvar na Árvore"):
-                if pasta_principal and subpasta_nivel and subtopico_nome and desc_input:
-                    url_anexos_onb = upload_multiplos_arquivos(files_input) if files_input else None
-                    conteudo_final = f"{desc_input.strip()}"
-                    if url_anexos_onb:
-                        conteudo_final += f"\n\n**Anexos/Imagens:** {url_anexos_onb}"
+                if lvl_1 and lvl_6_titulo and desc_input:
+                    # Upload separado para cada nível
+                    url_img_1 = upload_multiplos_arquivos(files_lvl_1) if files_lvl_1 else None
+                    url_img_2 = upload_multiplos_arquivos(files_lvl_2) if files_lvl_2 else None
+                    url_img_3 = upload_multiplos_arquivos(files_lvl_3) if files_lvl_3 else None
+                    url_img_4 = upload_multiplos_arquivos(files_lvl_4) if files_lvl_4 else None
+                    url_img_5 = upload_multiplos_arquivos(files_lvl_5) if files_lvl_5 else None
+                    url_anexos_topico = upload_multiplos_arquivos(files_input_topico) if files_input_topico else None
                     
                     dados_onb = {
-                        "sistema_produto": pasta_principal.strip(),
-                        "hardware": subpasta_nivel.strip(), # Salvamos a subpasta no campo hardware para manter compatibilidade
-                        "titulo": subtopico_nome.strip(),
-                        "conteudo": conteudo_final
+                        "sistema_produto": lvl_1.strip(),
+                        "hardware": lvl_2.strip() if lvl_2 else None,
+                        "nivel_3": lvl_3.strip() if lvl_3 else None,
+                        "nivel_4": lvl_4.strip() if lvl_4 else None,
+                        "nivel_5": lvl_5.strip() if lvl_5 else None,
+                        "titulo": lvl_6_titulo.strip(),
+                        "conteudo": desc_input.strip(),
+                        "nivel_1_img": url_img_1,
+                        "nivel_2_img": url_img_2,
+                        "nivel_3_img": url_img_3,
+                        "nivel_4_img": url_img_4,
+                        "nivel_5_img": url_img_5,
+                        "anexo_url": url_anexos_topico
                     }
                     
                     if salvar_manual_db(dados_onb, "tecnico@actuar.group"):
-                        st.toast("Item adicionado na árvore de pastas com sucesso!", icon="🎉")
+                        st.toast("Item adicionado com sucesso na árvore com todas as imagens!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha todos os campos obrigatórios (Pasta Principal, Subpasta, Subtópico e Descrição).")
+                    st.error("Preencha ao menos a Pasta Principal (Nível 1), o Título Final e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
@@ -955,7 +923,7 @@ with tabs[indice_cad]:
                     "nivel": in_nivel,
                     "anexo_url": url_anexo_prob,
                 }
-                if salvar_ocorrencia_db(dados, "tecnico@actuar.group"):
+                if salvar_manual_db(dados, "tecnico@actuar.group"):
                     st.toast("Tratativa salva com sucesso!", icon="🎉")
                     st.rerun()
             else:
@@ -973,7 +941,7 @@ with tabs[indice_export]:
     if not df_manuais.empty:
         conteudo_txt += "--- SEÇÃO 1: ÁRVORE DE PASTAS ---\n"
         for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Pasta Principal: {row.get('sistema_produto')} | Subpasta: {row.get('hardware')} | Subtópico: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
+            conteudo_txt += f"Nível 1: {row.get('sistema_produto')} | Nível 2: {row.get('hardware')} | Nível 3: {row.get('nivel_3')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
 
     if not df_ocorrencias.empty:
         conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
