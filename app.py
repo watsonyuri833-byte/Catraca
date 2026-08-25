@@ -684,6 +684,21 @@ with tabs[indice_onboarding]:
                 edit_titulo = st.text_input("Título do Tópico / Erro:", value=str(item_edit.get("titulo", "")))
 
                 st.markdown("---")
+                st.markdown("📎 **Gerenciamento de Evidências Gerais:**")
+                anexo_global_atual = item_edit.get("anexo_url", None)
+                imagens_ globais_mantidas = []
+                if anexo_global_atual and str(anexo_global_atual).strip():
+                    st.markdown("Desmarque para excluir imagens gerais existentes:")
+                    lista_g_urls = [u.strip() for u in str(anexo_global_atual).split(",") if u.strip()]
+                    for g_idx, g_url in enumerate(lista_g_urls):
+                        nome_g = g_url.split("/")[-1].split("?")[0]
+                        mantem_g = st.checkbox(f"Manter imagem geral: {nome_g[:25]}...", value=True, key=f"edit_mantem_g_{g_idx}")
+                        if mantem_g:
+                            imagens_globais_mantidas.append(g_url)
+                
+                arquivos_globais_no = st.file_uploader("📎 Adicionar Novas Evidências Gerais:", accept_multiple_files=True, key="edit_files_global")
+
+                st.markdown("---")
                 st.markdown("🛠️ **Passos do Procedimento:**")
                 passos_editados_lista = []
                 for p_idx in range(1, 6):
@@ -694,7 +709,19 @@ with tabs[indice_onboarding]:
                     with col_p_txt:
                         txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=passo_existente.get("texto", ""), key=f"edit_p_txt_{p_idx}", height=70)
                     with col_p_file:
-                        files_p = st.file_uploader(f"Novos Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{p_idx}")
+                        # Exclusão individual de imagens do passo
+                        url_passo_atual = passo_existente.get("anexo", None)
+                        imagens_passo_mantidas = []
+                        if url_passo_atual and str(url_passo_atual).strip():
+                            st.markdown("🗑️ **Excluir imagens do passo:**")
+                            lista_p_urls = [u.strip() for u in str(url_passo_atual).split(",") if u.strip()]
+                            for pi_idx, pi_url in enumerate(lista_p_urls):
+                                nome_pi = pi_url.split("/")[-1].split("?")[0]
+                                mantem_pi = st.checkbox(f"Manter: {nome_pi[:18]}...", value=True, key=f"edit_mantem_p_{p_idx}_{pi_idx}")
+                                if mantem_pi:
+                                    imagens_passo_mantidas.append(pi_url)
+
+                        files_p = st.file_uploader(f"Adicionar Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{p_idx}")
 
                     col_l_passo, col_err_passo = st.columns(2)
                     with col_l_passo:
@@ -703,35 +730,35 @@ with tabs[indice_onboarding]:
                     with col_err_passo:
                         txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", value=passo_existente.get("erro", ""), key=f"edit_p_err_{p_idx}", height=70)
                         
-                        # Bloco de gerenciamento / exclusão individual de imagens de erro existentes
+                        # Exclusão individual de imagens de erro
                         urls_erro_atual = passo_existente.get("erro_anexo", None)
                         imagens_erro_mantidas = []
                         if urls_erro_atual and str(urls_erro_atual).strip():
-                            st.markdown("🗑️ **Excluir imagens de erro individuais:**")
+                            st.markdown("🗑️ **Excluir imagens de erro:**")
                             lista_urls_err = [u.strip() for u in str(urls_erro_atual).split(",") if u.strip()]
                             for img_idx, img_url in enumerate(lista_urls_err):
                                 nome_img = img_url.split("/")[-1].split("?")[0]
-                                mantem = st.checkbox(f"Manter imagem: {nome_img[:20]}...", value=True, key=f"edit_mantem_err_{p_idx}_{img_idx}")
-                                if mantem:
+                                mantem_err = st.checkbox(f"Manter erro: {nome_img[:18]}...", value=True, key=f"edit_mantem_err_{p_idx}_{img_idx}")
+                                if mantem_err:
                                     imagens_erro_mantidas.append(img_url)
 
                         files_err = st.file_uploader(f"Adicionar imagens para Erros (Passo {p_idx})", accept_multiple_files=True, key=f"edit_p_err_file_{p_idx}")
 
                     if txt_p.strip():
-                        url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else passo_existente.get("anexo", None)
-                        
-                        # Processa novos arquivos de erro e junta com os mantidos
+                        novas_urls_p = upload_multiplos_arquivos(files_p) if files_p else None
+                        if novas_urls_p:
+                            imagens_passo_mantidas.extend([u.strip() for u in novas_urls_p.split(",") if u.strip()])
+                        final_passo_anexo = ",".join(imagens_passo_mantidas) if imagens_passo_mantidas else None
+
                         novas_urls_err = upload_multiplos_arquivos(files_err) if files_err else None
                         if novas_urls_err:
-                            lista_novas = [u.strip() for u in novas_urls_err.split(",") if u.strip()]
-                            imagens_erro_mantidas.extend(lista_novas)
-                        
+                            imagens_erro_mantidas.extend([u.strip() for u in novas_urls_err.split(",") if u.strip()])
                         final_erro_anexo = ",".join(imagens_erro_mantidas) if imagens_erro_mantidas else None
 
                         passos_editados_lista.append({
                             "passo": p_idx,
                             "texto": txt_p.strip(),
-                            "anexo": url_anexo_p,
+                            "anexo": final_passo_anexo,
                             "erro": txt_err_p.strip() if txt_err_p else "",
                             "erro_anexo": final_erro_anexo,
                             "link_url": link_url_p.strip() if link_url_p else "",
@@ -746,14 +773,16 @@ with tabs[indice_onboarding]:
                 with col_l2:
                     link_titulo_in = st.text_input("Nome/Título do Link Geral:", value=str(item_edit.get("link_titulo") or ""))
 
-                arquivos_globais_no = st.file_uploader("📎 Adicionar Novas Evidências Gerais:", accept_multiple_files=True, key="edit_files_global")
-
                 col_btn_salvar_ed, col_btn_canc_ed = st.columns(2)
                 with col_btn_salvar_ed:
                     if st.form_submit_button("💾 Salvar Alterações"):
                         if edit_titulo and passos_editados_lista:
                             json_conteudo = json.dumps(passos_editados_lista)
-                            url_anexos_global = upload_multiplos_arquivos(arquivos_globais_no) if arquivos_globais_no else item_edit.get("anexo_url")
+                            
+                            novas_g_up = upload_multiplos_arquivos(arquivos_globais_no) if arquivos_globais_no else None
+                            if novas_g_up:
+                                imagens_globais_mantidas.extend([u.strip() for u in novas_g_up.split(",") if u.strip()])
+                            url_anexos_global_final = ",".join(imagens_globais_mantidas) if imagens_globais_mantidas else None
                             
                             dados_atualizados = {
                                 "sistema_produto": edit_galho,
@@ -762,7 +791,7 @@ with tabs[indice_onboarding]:
                                 "conteudo": json_conteudo,
                                 "link_url": link_url_in.strip() if link_url_in else None,
                                 "link_titulo": link_titulo_in.strip() if link_titulo_in else None,
-                                "anexo_url": url_anexos_global
+                                "anexo_url": url_anexos_global_final
                             }
                             
                             if atualizar_manual_db(st.session_state.editando_manual_id, dados_atualizados, "tecnico@actuar.group"):
@@ -855,7 +884,7 @@ with tabs[indice_onboarding]:
                         "erro": txt_err_p.strip() if txt_err_p else "",
                         "erro_anexo": url_erro_anexo_p,
                         "link_url": link_url_p.strip() if link_url_p else "",
-                        "link_titulo": link_tit_p.strip() if link_tit_p else ""
+                        "link_titulo": link_titulo_p.strip() if link_titulo_p else ""
                     })
                 st.markdown("---")
 
