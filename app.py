@@ -231,19 +231,19 @@ def salvar_manual_db(dados, usuario_email):
     try:
         dados_limpos = limpar_dados_para_json(dados)
         supabase.table("manuais_produto").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "MANUAL_CRIADO", f"Cadastrou manual técnico: {dados.get('titulo')}")
+        registrar_log(usuario_email, "MANUAL_CRIADO", f"Cadastrou item de árvore: {dados.get('titulo')}")
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar manual: {e}")
+        st.error(f"Erro ao salvar: {e}")
         return False
 
 def deletar_manual_db(manual_id, usuario_email):
     try:
         supabase.table("manuais_produto").delete().eq("id", manual_id).execute()
-        registrar_log(usuario_email, "MANUAL_EXCLUIDO", f"Excluiu o manual ID #{manual_id}")
+        registrar_log(usuario_email, "MANUAL_EXCLUIDO", f"Excluiu o item ID #{manual_id}")
         return True
     except Exception as e:
-        st.error(f"Erro ao excluir manual: {e}")
+        st.error(f"Erro ao excluir: {e}")
         return False
 
 def upload_arquivo_unico(file):
@@ -335,7 +335,7 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
     if contexto_man:
         for m in contexto_man:
-            contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+            contexto_str += f"[MANUAL] Título: {m.get('titulo')} | Tema: {m.get('sistema_produto')}\nConteúdo: {m.get('conteudo')}\n\n"
     if contexto_ocor:
         for o in contexto_ocor:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
@@ -383,15 +383,6 @@ with st.sidebar:
 # ==========================================
 # 6. CABEÇALHO E NAVEGAÇÃO PRINCIPAL
 # ==========================================
-LISTA_SISTEMA = [
-    "Legado(Acesso)",
-    "The new(Edge)",
-    "Edizz",
-    "AcDesk",
-    "Não se aplica / Geral",
-    "Outro Sistema",
-    "Indiferente",
-]
 LISTA_HARDWARE = [
     "Catraca litnet1",
     "Catraca litnet2",
@@ -433,7 +424,7 @@ df_manuais = buscar_manuais_db()
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
-    "👩‍💻 Onboarding (Organograma)",
+    "👩‍💻 Onboarding (Árvore)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -506,7 +497,7 @@ with tabs[indice_diag]:
     col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
 
     with col_f1:
-        sist_base = set(LISTA_SISTEMA)
+        sist_base = set()
         if not df_ocorrencias.empty and "sistema" in df_ocorrencias.columns:
             sist_base.update(df_ocorrencias["sistema"].dropna().unique())
         f_sist = st.selectbox("Filtrar por Sistema:", ["Todos"] + sorted(list(sist_base)), key="f_sist_tab0")
@@ -630,11 +621,6 @@ with tabs[indice_diag]:
                     st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
                     
                     try:
-                        idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
-                    except ValueError:
-                        idx_sist = 0
-
-                    try:
                         idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
                     except ValueError:
                         idx_hw = 0
@@ -664,7 +650,7 @@ with tabs[indice_diag]:
                             edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"edit_hw_{ocor_id}")
                             edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status, key=f"edit_st_{ocor_id}")
                         with col_e2:
-                            edit_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, index=idx_sist, key=f"edit_sis_{ocor_id}")
+                            edit_sist = st.text_input("💻 Sistema / Módulo:", value=sist, key=f"edit_sis_{ocor_id}")
                             edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel, key=f"edit_niv_{ocor_id}")
 
                         edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"edit_prob_{ocor_id}")
@@ -768,23 +754,23 @@ with tabs[indice_copilot]:
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: ONBOARDING (ORGANOGRAMA & ÁRVORE)
+# ABA 3: ONBOARDING (ÁRVORE HIERÁRQUICA LIVRE)
 # ==========================================
-indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Organograma)")
+indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Árvore)")
 with tabs[indice_onboarding]:
-    st.subheader("🌳 Organograma e Mapa Mental de Onboarding")
-    st.caption("Gerencie e visualize seus fluxos e subtópicos cadastrados em árvore hierárquica.")
+    st.subheader("🌳 Estrutura em Árvore (Pastas e Subtópicos Livres)")
+    st.caption("Crie e organize livremente quantos temas e subtópicos quiser. Digite os nomes exatos do seu jeito.")
 
-    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Organograma", "➕ Cadastrar / Gerenciar Tópicos"])
+    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Árvore de Tópicos", "➕ Criar / Gerenciar Novos Ramos"])
 
     with tab_obs_ver:
         if df_manuais.empty:
-            st.info("Nenhum roteiro de onboarding cadastrado ainda. Utilize a aba 'Cadastrar / Gerenciar Tópicos' para criar o primeiro fluxo.")
+            st.info("Nenhum tópico cadastrado ainda. Use a aba 'Criar / Gerenciar Novos Ramos' para adicionar seus temas e subtópicos.")
         else:
             categorias_unicas = df_manuais["sistema_produto"].dropna().unique()
             
             for cat in sorted(categorias_unicas):
-                with st.expander(f"📁 **Tema Central / Módulo:** {cat}", expanded=True):
+                with st.expander(f"📁 **Tema Principal:** {cat}", expanded=True):
                     df_cat = df_manuais[df_manuais["sistema_produto"] == cat]
                     
                     for _, row_item in df_cat.iterrows():
@@ -794,30 +780,30 @@ with tabs[indice_onboarding]:
                         
                         col_tree_l, col_tree_r = st.columns([5, 1])
                         with col_tree_l:
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;┗━━ 🌿 **{subtopico}**")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Instruções:* {descricao}")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;┗━━ 🌿 **Subtópico:** {subtopico}")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Instruções / Ações:* {descricao}")
                         with col_tree_r:
                             if st.button("🗑️ Excluir", key=f"del_onb_{item_id}"):
                                 if deletar_manual_db(item_id, "tecnico@actuar.group"):
-                                    st.toast("Tópico excluído com sucesso!", icon="🗑️")
+                                    st.toast("Ramo excluído com sucesso!", icon="🗑️")
                                     st.rerun()
                         
                         st.markdown("---")
 
     with tab_obs_cad:
-        st.markdown("### ➕ Adicionar Novo Bloco no Organograma de Onboarding")
+        st.markdown("### ➕ Adicionar Novo Tema ou Subtópico na Árvore")
         with st.form("form_novo_onb_arvore", clear_on_submit=True):
             col_o1, col_o2 = st.columns(2)
             with col_o1:
-                cat_input = st.selectbox("Tema Central / Módulo Principal:", LISTA_SISTEMA)
+                cat_input = st.text_input("📁 Nome do Tema Principal (Pasta):", placeholder="Ex: Instalação do Acesso")
             with col_o2:
-                sub_input = st.text_input("Subtópico / Ramo:", placeholder="Ex: Nome do Subtópico ou Ramo")
+                sub_input = st.text_input("🌿 Nome do Subtópico / Condição:", placeholder="Ex: Se der erro na conexão, faça isso...")
 
-            desc_input = st.text_area("📄 Descrição detalhada do conteúdo ou passo a passo:", placeholder="Descreva as orientações, diretrizes ou etapas...", height=150)
+            desc_input = st.text_area("📄 Descrição detalhada do procedimento (passo a passo):", placeholder="Descreva o que deve ser feito...", height=150)
             
             files_input = st.file_uploader("📷 Colar / Enviar Imagens ou Prints de Apoio:", accept_multiple_files=True, key="files_onb_tree")
 
-            if st.form_submit_button("💾 Salvar no Organograma de Onboarding"):
+            if st.form_submit_button("💾 Salvar na Árvore"):
                 if cat_input and sub_input and desc_input:
                     url_anexos_onb = upload_multiplos_arquivos(files_input) if files_input else None
                     conteudo_final = f"{desc_input.strip()}"
@@ -825,17 +811,17 @@ with tabs[indice_onboarding]:
                         conteudo_final += f"\n\n**Anexos/Imagens:** {url_anexos_onb}"
                     
                     dados_onb = {
-                        "sistema_produto": cat_input,
+                        "sistema_produto": cat_input.strip(),
                         "hardware": "Indiferente",
                         "titulo": sub_input.strip(),
                         "conteudo": conteudo_final
                     }
                     
                     if salvar_manual_db(dados_onb, "tecnico@actuar.group"):
-                        st.toast("Item de onboarding adicionado com sucesso na árvore!", icon="🎉")
+                        st.toast("Item adicionado com sucesso na árvore!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha o Tema Central, o Subtópico e a Descrição.")
+                    st.error("Preencha o Tema Principal, o Subtópico e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
@@ -847,7 +833,7 @@ with tabs[indice_manuais]:
     with st.form("form_novo_manual", clear_on_submit=True):
         col_m1, col_m2 = st.columns(2)
         with col_m1:
-            m_sistema = st.selectbox("💻 Sistema / Módulo Afetado:", LISTA_SISTEMA, key="manual_sistema")
+            m_sistema = st.text_input("💻 Sistema / Módulo Afetado:", placeholder="Ex: Edge / Control ID")
             m_titulo = st.text_input("Título do Manual / Especificação:", placeholder="Ex: Manual do Modo Stream Control ID")
         with col_m2:
             m_hardware = st.selectbox("⚙️ Hardware Relacionado:", LISTA_HARDWARE, key="manual_hw")
@@ -857,7 +843,7 @@ with tabs[indice_manuais]:
         if st.form_submit_button("💾 Salvar Manual na Base de Conhecimento"):
             if m_titulo and m_conteudo:
                 dados_manual = {
-                    "sistema_produto": m_sistema,
+                    "sistema_produto": m_sistema.strip(),
                     "hardware": m_hardware,
                     "titulo": m_titulo,
                     "conteudo": m_conteudo,
@@ -920,7 +906,7 @@ with tabs[indice_cad]:
             in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, key="cad_hw")
             in_status = st.selectbox("📌 Status:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"], key="cad_status")
         with col_c2:
-            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, key="cad_sist")
+            in_sist = st.text_input("💻 Sistema / Módulo (Livre):", placeholder="Ex: Legado(Acesso)")
             in_nivel = st.selectbox("📊 Nível:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"], key="cad_nivel")
 
         in_prob = st.text_input("Problema (Sintoma):")
@@ -941,12 +927,12 @@ with tabs[indice_cad]:
                 passos_novos_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
 
         if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
-            if in_prob and in_motivo and passos_novos_lista:
+            if in_sist and in_prob and in_motivo and passos_novos_lista:
                 json_solucao = json.dumps(passos_novos_lista)
                 url_anexo_prob = upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
 
                 dados = {
-                    "sistema": in_sist,
+                    "sistema": in_sist.strip(),
                     "equipamento": in_hw,
                     "problema": in_prob,
                     "motivo": in_motivo,
@@ -959,7 +945,7 @@ with tabs[indice_cad]:
                     st.toast("Tratativa salva com sucesso!", icon="🎉")
                     st.rerun()
             else:
-                st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
+                st.error("Preencha o sistema, problema, motivo e ao menos 1 passo da solução.")
 
 # ==========================================
 # ABA 8: IMPORTAR & EXPORTAR TXT
@@ -968,23 +954,12 @@ indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
     st.subheader("📥 Importar & Exportar Base Completa em .TXT")
 
-    with st.form("form_import_txt"):
-        arquivo_txt = st.file_uploader("Selecione o arquivo .TXT:", type=["txt"])
-        if st.form_submit_button("🚀 Processar Importação"):
-            if arquivo_txt is not None:
-                qtd = processar_importacao_txt(arquivo_txt.getvalue(), "tecnico@actuar.group")
-                if qtd > 0:
-                    st.success(f"{qtd} ocorrências foram importadas com sucesso!")
-                    time.sleep(1)
-                    st.rerun()
-
-    st.markdown("---")
     conteudo_txt = "=" * 70 + "\nACTUAR.GROUP - EXPORTAÇÃO DA BASE DE CONHECIMENTO\n" + "=" * 70 + "\n\n"
 
     if not df_manuais.empty:
-        conteudo_txt += "--- SEÇÃO 1: MANUAIS ---\n"
+        conteudo_txt += "--- SEÇÃO 1: ÁRVORE / MANUAIS ---\n"
         for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
+            conteudo_txt += f"Tema: {row.get('sistema_produto')} | Subtópico: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
 
     if not df_ocorrencias.empty:
         conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
