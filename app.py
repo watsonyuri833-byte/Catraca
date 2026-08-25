@@ -308,16 +308,13 @@ def renderizar_conteudo_estruturado(conteudo_data, anexo_global=None):
 
             st.markdown(f"**{num_passo}º** {texto_passo}")
             
-            # Link específico do passo, se houver
             if link_passo:
                 renderizar_bloco_links(link_passo, link_titulo_passo)
 
-            # Anexos do passo, se houver
             if url_passo:
                 with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
                     renderizar_bloco_imagens(url_passo)
 
-            # Subpasta de Erro do passo, se houver
             if erro_passo and str(erro_passo).strip() != "":
                 with st.expander(f"⚠️ Erros / Possíveis Falhas (Passo {num_passo})", expanded=False):
                     st.markdown(f"{erro_passo}")
@@ -677,10 +674,7 @@ with tabs[indice_onboarding]:
                             with st.container(border=True):
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╰─ 🔹 **{row_item.get('titulo')}**")
                                 
-                                # Renderiza conteúdo estruturado (passos, anexos, erros e links por passo)
                                 renderizar_conteudo_estruturado(row_item.get('conteudo'), row_item.get('anexo_url'))
-                                
-                                # Renderiza links externos e vídeos gerais se existirem
                                 renderizar_bloco_links(row_item.get('link_url'), row_item.get('link_titulo'))
                                 
                                 if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
@@ -707,7 +701,6 @@ with tabs[indice_onboarding]:
                 with col_p_file:
                     files_p = st.file_uploader(f"Anexos Passo {p_idx}", accept_multiple_files=True, key=f"map_p_file_{p_idx}")
 
-                # Campos opcionais ao lado direito da descrição: Link e Erros
                 col_l_passo, col_err_passo = st.columns(2)
                 with col_l_passo:
                     link_url_p = st.text_input(f"Link do Passo {p_idx} (Opcional):", placeholder="https://...", key=f"map_p_link_{p_idx}")
