@@ -286,6 +286,31 @@ def renderizar_bloco_links(link_url, link_titulo):
         titulo_exibicao = link_titulo if (link_titulo and pd.notna(link_titulo) and str(link_titulo).strip() != "") else "Acessar Link Externo / Vídeo"
         st.markdown(f"🔗 [**{titulo_exibicao}**]({link_url.strip()})", unsafe_allow_html=True)
 
+def renderizar_conteudo_estruturado(conteudo_data, anexo_global=None):
+    renderizar_bloco_imagens(anexo_global, "📎 Evidências do Tópico")
+    
+    passos = []
+    try:
+        if conteudo_data and str(conteudo_data).strip().startswith("["):
+            passos = json.loads(str(conteudo_data))
+    except Exception:
+        passos = []
+
+    if passos and isinstance(passos, list):
+        st.markdown("**Procedimento em Etapas:**")
+        for idx, item in enumerate(passos):
+            num_passo = item.get("passo", idx + 1)
+            texto_passo = item.get("texto", "")
+            url_passo = item.get("anexo", None)
+
+            st.markdown(f"**{num_passo}º** {texto_passo}")
+            if url_passo:
+                with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
+                    renderizar_bloco_imagens(url_passo)
+            st.markdown("")
+    else:
+        st.markdown(f"{conteudo_data}")
+
 # ==========================================
 # 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA
 # ==========================================
@@ -439,31 +464,6 @@ abas_navegacao = [
 
 tabs = st.tabs(abas_navegacao)
 
-def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    renderizar_bloco_imagens(anexo_global, "📎 Ver Evidências do Problema")
-    
-    passos = []
-    try:
-        if solucao_data and str(solucao_data).strip().startswith("["):
-            passos = json.loads(str(solucao_data))
-    except Exception:
-        passos = []
-
-    if passos and isinstance(passos, list):
-        st.markdown("**Solução Recomendada em Etapas:**")
-        for idx, item in enumerate(passos):
-            num_passo = item.get("passo", idx + 1)
-            texto_passo = item.get("texto", "")
-            url_passo = item.get("anexo", None)
-
-            st.markdown(f"**{num_passo}º** {texto_passo}")
-            if url_passo:
-                with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
-                    renderizar_bloco_imagens(url_passo)
-            st.markdown("")
-    else:
-        st.success(f"**Solução Recomendada:**\n{solucao_data}")
-
 # ==========================================
 # ABA 1: DIAGNÓSTICOS
 # ==========================================
@@ -572,7 +572,7 @@ with tabs[indice_diag]:
                 st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
                 st.markdown("---")
 
-                renderizar_solucao_estruturada(solucao_val, anexo)
+                renderizar_conteudo_estruturado(solucao_val, anexo)
 
 # ==========================================
 # ABA 2: GEMINI IA COPILOT
@@ -661,11 +661,12 @@ with tabs[indice_onboarding]:
                         for _, row_item in df_sg.iterrows():
                             with st.container(border=True):
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╰─ 🔹 **{row_item.get('titulo')}**")
-                                st.markdown(f"{row_item.get('conteudo')}")
                                 
-                                # Renderiza links e imagens se existirem
+                                # Renderiza conteúdo estruturado (passos ou texto)
+                                renderizar_conteudo_estruturado(row_item.get('conteudo'), row_item.get('anexo_url'))
+                                
+                                # Renderiza links externos e vídeos se existirem
                                 renderizar_bloco_links(row_item.get('link_url'), row_item.get('link_titulo'))
-                                renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Evidências / Imagens:")
                                 
                                 if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
                                     deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
@@ -678,9 +679,22 @@ with tabs[indice_onboarding]:
         with st.form("form_mapa_interativo", clear_on_submit=True):
             sub_galho_tipo = st.selectbox("Subpasta do Galho:", ["Manual de Instalação", "Erros e Soluções", "Outro Subtópico"], key="map_sub_g")
             
-            titulo_no = st.text_input("Título do Tópico / Erro:", placeholder="Ex: Configuração de IP / Erro de timeout...")
-            conteudo_no = st.text_area("Descrição detalhada do nó / Passo a passo:", placeholder="Descreva o procedimento ou a solução exibida no mapa...", height=140)
+            titulo_no = st.text_input("Título do Tópico / Erro:", placeholder="Ex: Actuar Acesso / Configuração de IP...")
             
+            st.markdown("---")
+            st.markdown("🛠️ **Passos do Procedimento (Passo a Passo):**")
+            passos_mapa_lista = []
+            for p_idx in range(1, 6):
+                col_p_txt, col_p_file = st.columns([2, 1])
+                with col_p_txt:
+                    txt_p = st.text_area(f"Descrição do Passo {p_idx}:", key=f"map_p_txt_{p_idx}", height=70)
+                with col_p_file:
+                    files_p = st.file_uploader(f"Anexos Passo {p_idx}", accept_multiple_files=True, key=f"map_p_file_{p_idx}")
+
+                if txt_p.strip():
+                    url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
+                    passos_mapa_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
+
             st.markdown("---")
             st.markdown("🌐 **Vídeo ou Link Externo de Apoio (Opcional):**")
             col_l1, col_l2 = st.columns([2, 1])
@@ -689,27 +703,28 @@ with tabs[indice_onboarding]:
             with col_l2:
                 link_titulo_in = st.text_input("Nome/Título do Link:", placeholder="Ex: Vídeo Explicativo YouTube")
 
-            arquivos_no = st.file_uploader("📷 Anexar Imagens / Evidências para este nó:", accept_multiple_files=True, key="map_files")
+            arquivos_globais_no = st.file_uploader("📎 Imagens / Evidências Gerais do Tópico (Opcional):", accept_multiple_files=True, key="map_files_global")
             
             if st.form_submit_button("💾 Inserir Nó no Mapa"):
-                if titulo_no and conteudo_no:
-                    url_anexos_no = upload_multiplos_arquivos(arquivos_no) if arquivos_no else None
+                if titulo_no and passos_mapa_lista:
+                    json_conteudo = json.dumps(passos_mapa_lista)
+                    url_anexos_global = upload_multiplos_arquivos(arquivos_globais_no) if arquivos_globais_no else None
                     
                     dados_no = {
                         "sistema_produto": galho_selecionado_filtro,
                         "hardware": sub_galho_tipo,
                         "titulo": titulo_no.strip(),
-                        "conteudo": conteudo_no.strip(),
+                        "conteudo": json_conteudo,
                         "link_url": link_url_in.strip() if link_url_in else None,
                         "link_titulo": link_titulo_in.strip() if link_titulo_in else None,
-                        "anexo_url": url_anexos_no
+                        "anexo_url": url_anexos_global
                     }
                     
                     if salvar_manual_db(dados_no, "tecnico@actuar.group"):
                         st.toast("Nó adicionado com sucesso ao mapa!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha o Título e a Descrição.")
+                    st.error("Preencha o Título e pelo menos o Passo 1 do procedimento.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
@@ -756,7 +771,7 @@ with tabs[indice_manuais]:
         for _, row in df_manuais.iterrows():
             m_id = row["id"]
             with st.expander(f"📖 [ID #{m_id}] {row.get('titulo')} ({row.get('sistema_produto')} / {row.get('hardware')})"):
-                st.markdown(f"**Conteúdo Registrado:**\n{row.get('conteudo')}")
+                renderizar_conteudo_estruturado(row.get('conteudo'), row.get('anexo_url'))
                 renderizar_bloco_links(row.get('link_url'), row.get('link_titulo'))
                 
                 if st.button(f"🗑️ Excluir Manual #{m_id}", key=f"del_manual_{m_id}"):
@@ -791,7 +806,7 @@ with tabs[indice_fav]:
         for _, row in df_fav.iterrows():
             ocor_id = int(row["id"])
             with st.expander(f"⭐ [FAVORITO #{ocor_id}] {row.get('problema')}"):
-                renderizar_solucao_estruturada(row.get("solucao"), row.get("anexo_url"))
+                renderizar_conteudo_estruturado(row.get("solucao"), row.get("anexo_url"))
 
 # ==========================================
 # ABA 7: CADASTRAR TRATATIVA
