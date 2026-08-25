@@ -216,6 +216,16 @@ def salvar_manual_db(dados, usuario_email):
         st.error(f"Erro ao salvar: {e}")
         return False
 
+def atualizar_manual_db(manual_id, dados, usuario_email):
+    try:
+        dados_limpos = limpar_dados_para_json(dados)
+        supabase.table("manuais_produto").update(dados_limpos).eq("id", manual_id).execute()
+        registrar_log(usuario_email, "MANUAL_ATUALIZADO", f"Atualizou o item ID #{manual_id}: {dados.get('titulo')}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar: {e}")
+        return False
+
 def deletar_manual_db(manual_id, usuario_email):
     try:
         supabase.table("manuais_produto").delete().eq("id", manual_id).execute()
@@ -402,6 +412,9 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
 # ==========================================
 if "favoritos" not in st.session_state:
     st.session_state.favoritos = []
+
+if "editando_manual_id" not in st.session_state:
+    st.session_state.editando_manual_id = None
 
 with st.sidebar:
     if os.path.exists("logo_dark.png"):
@@ -631,12 +644,12 @@ with tabs[indice_copilot]:
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: MAPA DE ONBOARDING (ÁRVORE VISUAL & CADASTRO INTEGRADO)
+# ABA 3: MAPA DE ONBOARDING (ÁRVORE VISUAL & CADASTRO / EDIÇÃO)
 # ==========================================
 indice_onboarding = abas_navegacao.index("🌳 Mapa de Onboarding (Legado vs EDesk)")
 with tabs[indice_onboarding]:
     st.subheader("🌳 Mapa Hierárquico de Onboarding (Legado vs EDesk)")
-    st.caption("Navegue pelos galhos do mapa mental abaixo. O que é cadastrado aqui reflete exatamente na estrutura visualizada pelos técnicos.")
+    st.caption("Navegue pelos galhos do mapa mental abaixo ou edite/adicione nós conforme necessário.")
 
     galhos_principais = ["Legado", "EDesk"]
     
@@ -647,6 +660,95 @@ with tabs[indice_onboarding]:
         galho_selecionado_filtro = st.selectbox("Galho Principal Alvo:", galhos_principais, key="filtro_galho_raiz")
 
     st.markdown("---")
+
+    # SE ESTIVER EDITANDO UM NÓ ESPECÍFICO
+    if st.session_state.editando_manual_id is not None and not df_manuais.empty:
+        item_edit_df = df_manuais[df_manuais["id"] == st.session_state.editando_manual_id]
+        if not item_edit_df.empty:
+            item_edit = item_edit_df.iloc[0]
+            st.markdown(f"### ✏️ Editando Nó ID #{item_edit['id']}")
+            
+            passos_atuais_edicao = []
+            try:
+                if item_edit.get("conteudo") and str(item_edit.get("conteudo")).strip().startswith("["):
+                    passos_atuais_edicao = json.loads(str(item_edit.get("conteudo")))
+            except Exception:
+                passos_atuais_edicao = []
+
+            with st.form("form_editar_no_mapa"):
+                edit_galho = st.selectbox("Galho Principal:", galhos_principais, index=galhos_principais.index(item_edit.get("sistema_produto")) if item_edit.get("sistema_produto") in galhos_principais else 0)
+                edit_subgalho = st.selectbox("Subpasta do Galho:", ["Manual de Instalação", "Erros e Soluções", "Outro Subtópico"], index=0)
+                edit_titulo = st.text_input("Título do Tópico / Erro:", value=str(item_edit.get("titulo", "")))
+
+                st.markdown("---")
+                st.markdown("🛠️ **Passos do Procedimento:**")
+                passos_editados_lista = []
+                for p_idx in range(1, 6):
+                    passo_existente = next((p for p in passos_atuais_edicao if p.get("passo") == p_idx), {})
+                    
+                    st.markdown(f"**Passo {p_idx}**")
+                    col_p_txt, col_p_file = st.columns([2, 1])
+                    with col_p_txt:
+                        txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=passo_existente.get("texto", ""), key=f"edit_p_txt_{p_idx}", height=70)
+                    with col_p_file:
+                        files_p = st.file_uploader(f"Novos Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{p_idx}")
+
+                    col_l_passo, col_err_passo = st.columns(2)
+                    with col_l_passo:
+                        link_url_p = st.text_input(f"Link do Passo {p_idx} (Opcional):", value=passo_existente.get("link_url", ""), key=f"edit_p_link_{p_idx}")
+                        link_tit_p = st.text_input(f"Título do Link {p_idx}:", value=passo_existente.get("link_titulo", ""), key=f"edit_p_link_tit_{p_idx}")
+                    with col_err_passo:
+                        txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", value=passo_existente.get("erro", ""), key=f"edit_p_err_{p_idx}", height=70)
+
+                    if txt_p.strip():
+                        url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else passo_existente.get("anexo", None)
+                        passos_editados_lista.append({
+                            "passo": p_idx,
+                            "texto": txt_p.strip(),
+                            "anexo": url_anexo_p,
+                            "erro": txt_err_p.strip() if txt_err_p else "",
+                            "link_url": link_url_p.strip() if link_url_p else "",
+                            "link_titulo": link_tit_p.strip() if link_tit_p else ""
+                        })
+                    st.markdown("---")
+
+                st.markdown("🌐 **Vídeo ou Link Externo Geral de Apoio (Opcional):**")
+                col_l1, col_l2 = st.columns([2, 1])
+                with col_l1:
+                    link_url_in = st.text_input("URL do Link / Vídeo Geral:", value=str(item_edit.get("link_url") or ""))
+                with col_l2:
+                    link_titulo_in = st.text_input("Nome/Título do Link Geral:", value=str(item_edit.get("link_titulo") or ""))
+
+                arquivos_globais_no = st.file_uploader("📎 Adicionar Novas Evidências Gerais:", accept_multiple_files=True, key="edit_files_global")
+
+                col_btn_salvar_ed, col_btn_canc_ed = st.columns(2)
+                with col_btn_salvar_ed:
+                    if st.form_submit_button("💾 Salvar Alterações"):
+                        if edit_titulo and passos_editados_lista:
+                            json_conteudo = json.dumps(passos_editados_lista)
+                            url_anexos_global = upload_multiplos_arquivos(arquivos_globais_no) if arquivos_globais_no else item_edit.get("anexo_url")
+                            
+                            dados_atualizados = {
+                                "sistema_produto": edit_galho,
+                                "hardware": edit_subgalho,
+                                "titulo": edit_titulo.strip(),
+                                "conteudo": json_conteudo,
+                                "link_url": link_url_in.strip() if link_url_in else None,
+                                "link_titulo": link_titulo_in.strip() if link_titulo_in else None,
+                                "anexo_url": url_anexos_global
+                            }
+                            
+                            if atualizar_manual_db(st.session_state.editando_manual_id, dados_atualizados, "tecnico@actuar.group"):
+                                st.session_state.editando_manual_id = None
+                                st.toast("Nó atualizado com sucesso!", icon="🎉")
+                                st.rerun()
+                        else:
+                            st.error("Preencha o Título e ao menos o Passo 1.")
+                with col_btn_canc_ed:
+                    if st.form_submit_button("❌ Cancelar Edição"):
+                        st.session_state.editando_manual_id = None
+                        st.rerun()
+            st.markdown("---")
 
     if df_manuais.empty:
         st.info("O mapa está vazio. Utilize a opção 'Adicionar Novo Nó / Galho' acima para estruturar o primeiro item.")
@@ -677,9 +779,15 @@ with tabs[indice_onboarding]:
                                 renderizar_conteudo_estruturado(row_item.get('conteudo'), row_item.get('anexo_url'))
                                 renderizar_bloco_links(row_item.get('link_url'), row_item.get('link_titulo'))
                                 
-                                if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
-                                    deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
-                                    st.rerun()
+                                col_b_edit, col_b_del, _ = st.columns([1, 1, 4])
+                                with col_b_edit:
+                                    if st.button(f"✏️ Editar #{row_item.get('id')}", key=f"edit_no_btn_{row_item.get('id')}"):
+                                        st.session_state.editando_manual_id = int(row_item.get('id'))
+                                        st.rerun()
+                                with col_b_del:
+                                    if st.button(f"🗑️ Excluir #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
+                                        deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
+                                        st.rerun()
 
     if modo_mapa == "➕ Adicionar Novo Nó / Galho":
         st.markdown("---")
