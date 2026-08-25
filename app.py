@@ -183,6 +183,16 @@ def buscar_manuais_db():
     except Exception:
         return pd.DataFrame()
 
+def buscar_onboarding_db():
+    if not supabase or not st.session_state.active_key:
+        return pd.DataFrame()
+    try:
+        res = supabase.table("onboarding_arvore").select("*").order("id", desc=True).execute()
+        return pd.DataFrame(res.data)
+    except Exception:
+        # Se a tabela não existir, retorna dataframe vazio sem quebrar
+        return pd.DataFrame()
+
 def registrar_log(usuario_email, acao, detalhes):
     if not supabase:
         return
@@ -244,6 +254,25 @@ def deletar_manual_db(manual_id, usuario_email):
         return True
     except Exception as e:
         st.error(f"Erro ao excluir manual: {e}")
+        return False
+
+def salvar_onboarding_db(dados, usuario_email):
+    try:
+        dados_limpos = limpar_dados_para_json(dados)
+        supabase.table("onboarding_arvore").insert(dados_limpos).execute()
+        registrar_log(usuario_email, "ONBOARDING_CRIADO", f"Cadastrou item de onboarding: {dados.get('categoria')} -> {dados.get('subtopico')}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar item de onboarding no Supabase. Verifique se a tabela 'onboarding_arvore' existe. Detalhe: {e}")
+        return False
+
+def deletar_onboarding_db(item_id, usuario_email):
+    try:
+        supabase.table("onboarding_arvore").delete().eq("id", item_id).execute()
+        registrar_log(usuario_email, "ONBOARDING_EXCLUIDO", f"Excluiu o item ID #{item_id}")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao excluir item: {e}")
         return False
 
 def processar_importacao_txt(file_bytes, usuario_email):
@@ -396,30 +425,17 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man, modo_onboarding=False):
+def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man):
     if not gemini_client:
         return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
 
-    if modo_onboarding:
-        prompt_sistema = """Você é o assistente virtual oficial e especializado em **instrução de onboarding, instalação e configuração de catracas e hardwares** da actuar.group.
-Seu objetivo principal é guiar a equipe de onboarding e suporte de campo passo a passo de forma simples, direta e didática para **eliminar dúvidas repetitivas básicas**.
-
-Diretrizes obrigatórias:
-1. **Foque em resoluções rápidas e preventivas de campo:**
-   - **Firewall:** Sempre lembre se o Windows Firewall ou antivírus de terceiro está desativado caso o sistema não comunique com a catraca.
-   - **Conflito de Redes / Faixas de IP:** Se o facial ou catraca estiver em uma faixa de rede diferente do computador, oriente o operador a criar um IP virtual (Alias de IP) na máquina para acessar a controladora/Control ID, configurar a rede corretamente para a mesma faixa local e depois retornar o IP do computador.
-   - **Catraca não encontrada / Erros comuns:** Oriente reiniciar o equipamento primeiro, checar conexões de cabo de rede/energia, ou em último caso orientar sobre o procedimento de reset de fábrica.
-2. Dê respostas formatadas em etapas numeradas claras, fáceis de ler rapidamente por quem está em atendimento com o cliente.
-3. Se houver correspondência na base de dados interna fornecida abaixo, use-a como base prioritária.
-"""
-    else:
-        prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
+    prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
 Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados interna de ocorrências e manuais fornecida abaixo, combinando-a com seu raciocínio técnico avançado.
 """
 
     contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
     for msg in historico_conversa:
-        papel = "TÉCNICO" if msg["role"] == "user" else ("ONBOARDING" if modo_onboarding else "COPILOT")
+        papel = "TÉCNICO" if msg["role"] == "user" else "COPILOT"
         contexto_str += f"{papel}: {msg['content']}\n\n"
 
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
@@ -519,11 +535,12 @@ st.markdown("---")
 
 df_ocorrencias = buscar_ocorrencias_db()
 df_manuais = buscar_manuais_db()
+df_onboarding = buscar_onboarding_db()
 
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
-    "👩‍💻 Onboarding (Instalação)",
+    "👩‍💻 Onboarding (Organograma)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -851,57 +868,92 @@ with tabs[indice_copilot]:
                 resposta_ia = processar_resposta_gemini_chat(
                     historico_conversa=st.session_state.historico_copilot,
                     contexto_ocor=match_ocor,
-                    contexto_man=match_man,
-                    modo_onboarding=False
+                    contexto_man=match_man
                 )
 
                 st.markdown(resposta_ia)
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: ONBOARDING (INSTALAÇÃO)
+# ABA 3: ONBOARDING (ORGANOGRAMA & ÁRVORE)
 # ==========================================
-indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Instalação)")
+indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Organograma)")
 with tabs[indice_onboarding]:
-    st.subheader("👩‍💻 Assistente de Onboarding & Instalação de Catracas")
-    st.caption("Especializada em instruir a equipe de onboarding e suporte básico: firewall, faixas de rede, IP virtual para Control ID, catraca não encontrada, reinicialização e reset de fábrica.")
+    st.subheader("🌳 Organograma de Onboarding e Instalação (Passo a Passo)")
+    st.caption("Navegue pelos módulos estruturados em árvore ou cadastre novos fluxos e subtópicos com imagens e instruções detalhadas.")
 
-    if "historico_onboarding" not in st.session_state:
-        st.session_state.historico_onboarding = []
+    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Organograma", "➕ Cadastrar / Gerenciar Tópicos"])
 
-    col_ab_top, col_ab_reset = st.columns([5, 1])
-    with col_ab_reset:
-        if st.button("🔄 Novo Atendimento Onboarding", key="reset_onboarding"):
-            st.session_state.historico_onboarding = []
-            st.rerun()
+    with tab_obs_ver:
+        if df_onboarding.empty:
+            st.info("Nenhum roteiro de onboarding cadastrado ainda. Utilize a aba 'Cadastrar / Gerenciar Tópicos' para criar o primeiro fluxo (Ex: Instalação de Legado e AD).")
+        else:
+            # Organizar em Árvore (Categoria -> Subtópico)
+            categorias_unicas = df_onboarding["categoria"].dropna().unique()
+            
+            for cat in sorted(categorias_unicas):
+                with st.expander(f"📁 **Categoria / Módulo Principal:** {cat}", expanded=True):
+                    df_cat = df_onboarding[df_onboarding["categoria"] == cat]
+                    
+                    for _, row_item in df_cat.iterrows():
+                        item_id = row_item.get("id")
+                        subtopico = row_item.get("subtopico")
+                        descricao = row_item.get("descricao")
+                        anexos = row_item.get("anexo_url")
+                        
+                        st.markdown(f"#### 🌿 **Subtópico:** {subtopico}")
+                        st.markdown(f"**Instruções / Passo a Passo:**\n{descricao}")
+                        
+                        # Renderizar imagens/arquivos se houver
+                        if anexos and pd.notna(anexos) and str(anexos).strip() != "":
+                            lista_urls = [u.strip() for u in str(anexos).split(",") if u.strip()]
+                            for idx_img, url_img in enumerate(lista_urls):
+                                nome_arq = url_img.split("/")[-1].split("?")[0]
+                                if url_img.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                                    try:
+                                        st.image(url_img, width=500, caption=f"Evidência / Print {idx_img + 1} - {subtopico}")
+                                    except Exception:
+                                        st.markdown(f"📥 Baixar Imagem: [**{nome_arq}**]({url_img})")
+                                else:
+                                    st.markdown(f"📄 Arquivo: [**{nome_arq}**]({url_img})")
+                        
+                        # Botão rápido para excluir item do organograma se necessário
+                        if st.button(f"🗑️ Excluir Subtópico #{item_id}", key=f"del_onb_{item_id}"):
+                            if deletar_onboarding_db(item_id, "tecnico@actuar.group"):
+                                st.toast("Subtópico excluído com sucesso!", icon="🗑️")
+                                st.rerun()
+                        
+                        st.markdown("---")
 
-    for msg in st.session_state.historico_onboarding:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with tab_obs_cad:
+        st.markdown("### ➕ Adicionar Novo Bloco no Organograma de Onboarding")
+        with st.form("form_novo_onb_arvore", clear_on_submit=True):
+            col_o1, col_o2 = st.columns(2)
+            with col_o1:
+                cat_input = st.text_input("Categoria Principal (Ex: Instalação de Legado e AD, Configuração de Rede, Catracas):", placeholder="Ex: Instalação de Legado e AD")
+            with col_o2:
+                sub_input = st.text_input("Subtópico / Passo (Ex: Passo 1 - Configurando IP Fixo, Instalação do Banco SQL):", placeholder="Ex: Passo 1 - Criação de Banco e Conexão")
 
-    user_input_ab = st.chat_input("Digite a dúvida ou o erro de instalação (Ex: Catraca não acha, IP diferente, Firewall...)", key="input_onboarding")
+            desc_input = st.text_area("📄 Descrição detalhada do passo a passo:", placeholder="Descreva detalhadamente o que o técnico deve fazer...", height=150)
+            
+            files_input = st.file_uploader("📷 Colar / Enviar Imagens ou Prints de Apoio:", accept_multiple_files=True, key="files_onb_tree")
 
-    if user_input_ab:
-        st.session_state.historico_onboarding.append({"role": "user", "content": user_input_ab})
-        with st.chat_message("user"):
-            st.markdown(user_input_ab)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Assistente de onboarding preparando passo a passo de instalação..."):
-                duvida_primeira_ab = st.session_state.historico_onboarding[0]["content"] if len(st.session_state.historico_onboarding) > 0 else user_input_ab
-                query_busca_ab = f"{duvida_primeira_ab} {user_input_ab}"
-
-                match_ocor_ab, match_man_ab = buscar_contexto_relevante(query_busca_ab, df_ocorrencias, df_manuais)
-
-                resposta_onboarding = processar_resposta_gemini_chat(
-                    historico_conversa=st.session_state.historico_onboarding,
-                    contexto_ocor=match_ocor_ab,
-                    contexto_man=match_man_ab,
-                    modo_onboarding=True
-                )
-
-                st.markdown(resposta_onboarding)
-                st.session_state.historico_onboarding.append({"role": "assistant", "content": resposta_onboarding})
+            if st.form_submit_button("💾 Salvar no Organograma de Onboarding"):
+                if cat_input and sub_input and desc_input:
+                    url_anexos_onb = upload_multiplos_arquivos(files_input) if files_input else None
+                    
+                    dados_onb = {
+                        "categoria": cat_input.strip(),
+                        "subtopico": sub_input.strip(),
+                        "descricao": desc_input.strip(),
+                        "anexo_url": url_anexos_onb
+                    }
+                    
+                    if salvar_onboarding_db(dados_onb, "tecnico@actuar.group"):
+                        st.toast("Item de onboarding adicionado com sucesso na árvore!", icon="🎉")
+                        st.rerun()
+                else:
+                    st.error("Preencha a Categoria, o Subtópico e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
