@@ -686,7 +686,7 @@ with tabs[indice_onboarding]:
                 st.markdown("---")
                 st.markdown("📎 **Gerenciamento de Evidências Gerais:**")
                 anexo_global_atual = item_edit.get("anexo_url", None)
-                imagens_ globais_mantidas = []
+                imagens_globais_mantidas = []
                 if anexo_global_atual and str(anexo_global_atual).strip():
                     st.markdown("Desmarque para excluir imagens gerais existentes:")
                     lista_g_urls = [u.strip() for u in str(anexo_global_atual).split(",") if u.strip()]
@@ -709,7 +709,6 @@ with tabs[indice_onboarding]:
                     with col_p_txt:
                         txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=passo_existente.get("texto", ""), key=f"edit_p_txt_{p_idx}", height=70)
                     with col_p_file:
-                        # Exclusão individual de imagens do passo
                         url_passo_atual = passo_existente.get("anexo", None)
                         imagens_passo_mantidas = []
                         if url_passo_atual and str(url_passo_atual).strip():
@@ -730,7 +729,6 @@ with tabs[indice_onboarding]:
                     with col_err_passo:
                         txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", value=passo_existente.get("erro", ""), key=f"edit_p_err_{p_idx}", height=70)
                         
-                        # Exclusão individual de imagens de erro
                         urls_erro_atual = passo_existente.get("erro_anexo", None)
                         imagens_erro_mantidas = []
                         if urls_erro_atual and str(urls_erro_atual).strip():
@@ -884,7 +882,7 @@ with tabs[indice_onboarding]:
                         "erro": txt_err_p.strip() if txt_err_p else "",
                         "erro_anexo": url_erro_anexo_p,
                         "link_url": link_url_p.strip() if link_url_p else "",
-                        "link_titulo": link_titulo_p.strip() if link_titulo_p else ""
+                        "link_titulo": link_tit_p.strip() if link_tit_p else ""
                     })
                 st.markdown("---")
 
@@ -1048,7 +1046,7 @@ with tabs[indice_cad]:
                     "erro": txt_err_p.strip() if txt_err_p else "",
                     "erro_anexo": url_erro_anexo_p,
                     "link_url": link_url_p.strip() if link_url_p else "",
-                    "link_titulo": link_titulo_p.strip() if link_titulo_p else ""
+                    "link_titulo": link_tit_p.strip() if link_tit_p else ""
                 })
             st.markdown("---")
 
