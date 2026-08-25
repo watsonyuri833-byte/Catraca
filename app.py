@@ -313,6 +313,7 @@ def renderizar_conteudo_estruturado(conteudo_data, anexo_global=None):
             texto_passo = item.get("texto", "")
             url_passo = item.get("anexo", None)
             erro_passo = item.get("erro", "")
+            erro_anexo = item.get("erro_anexo", None)
             link_passo = item.get("link_url", "")
             link_titulo_passo = item.get("link_titulo", "")
 
@@ -328,6 +329,8 @@ def renderizar_conteudo_estruturado(conteudo_data, anexo_global=None):
             if erro_passo and str(erro_passo).strip() != "":
                 with st.expander(f"⚠️ Erros / Possíveis Falhas (Passo {num_passo})", expanded=False):
                     st.markdown(f"{erro_passo}")
+                    if erro_anexo:
+                        renderizar_bloco_imagens(erro_anexo, "📸 Imagens/Evidências do Erro:")
 
             st.markdown("")
     else:
@@ -699,14 +702,38 @@ with tabs[indice_onboarding]:
                         link_tit_p = st.text_input(f"Título do Link {p_idx}:", value=passo_existente.get("link_titulo", ""), key=f"edit_p_link_tit_{p_idx}")
                     with col_err_passo:
                         txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", value=passo_existente.get("erro", ""), key=f"edit_p_err_{p_idx}", height=70)
+                        
+                        # Bloco de gerenciamento / exclusão individual de imagens de erro existentes
+                        urls_erro_atual = passo_existente.get("erro_anexo", None)
+                        imagens_erro_mantidas = []
+                        if urls_erro_atual and str(urls_erro_atual).strip():
+                            st.markdown("🗑️ **Excluir imagens de erro individuais:**")
+                            lista_urls_err = [u.strip() for u in str(urls_erro_atual).split(",") if u.strip()]
+                            for img_idx, img_url in enumerate(lista_urls_err):
+                                nome_img = img_url.split("/")[-1].split("?")[0]
+                                mantem = st.checkbox(f"Manter imagem: {nome_img[:20]}...", value=True, key=f"edit_mantem_err_{p_idx}_{img_idx}")
+                                if mantem:
+                                    imagens_erro_mantidas.append(img_url)
+
+                        files_err = st.file_uploader(f"Adicionar imagens para Erros (Passo {p_idx})", accept_multiple_files=True, key=f"edit_p_err_file_{p_idx}")
 
                     if txt_p.strip():
                         url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else passo_existente.get("anexo", None)
+                        
+                        # Processa novos arquivos de erro e junta com os mantidos
+                        novas_urls_err = upload_multiplos_arquivos(files_err) if files_err else None
+                        if novas_urls_err:
+                            lista_novas = [u.strip() for u in novas_urls_err.split(",") if u.strip()]
+                            imagens_erro_mantidas.extend(lista_novas)
+                        
+                        final_erro_anexo = ",".join(imagens_erro_mantidas) if imagens_erro_mantidas else None
+
                         passos_editados_lista.append({
                             "passo": p_idx,
                             "texto": txt_p.strip(),
                             "anexo": url_anexo_p,
                             "erro": txt_err_p.strip() if txt_err_p else "",
+                            "erro_anexo": final_erro_anexo,
                             "link_url": link_url_p.strip() if link_url_p else "",
                             "link_titulo": link_tit_p.strip() if link_tit_p else ""
                         })
@@ -815,14 +842,18 @@ with tabs[indice_onboarding]:
                     link_tit_p = st.text_input(f"Título do Link {p_idx}:", placeholder="Ex: Vídeo do Passo", key=f"map_p_link_tit_{p_idx}")
                 with col_err_passo:
                     txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", placeholder="Descreva o erro ou como resolver se falhar aqui...", key=f"map_p_err_{p_idx}", height=70)
+                    files_err = st.file_uploader(f"📸 Imagens/Evidências do Erro (Passo {p_idx})", accept_multiple_files=True, key=f"map_p_err_file_{p_idx}")
 
                 if txt_p.strip():
                     url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
+                    url_erro_anexo_p = upload_multiplos_arquivos(files_err) if files_err else None
+                    
                     passos_mapa_lista.append({
                         "passo": p_idx,
                         "texto": txt_p.strip(),
                         "anexo": url_anexo_p,
                         "erro": txt_err_p.strip() if txt_err_p else "",
+                        "erro_anexo": url_erro_anexo_p,
                         "link_url": link_url_p.strip() if link_url_p else "",
                         "link_titulo": link_tit_p.strip() if link_tit_p else ""
                     })
@@ -975,16 +1006,20 @@ with tabs[indice_cad]:
                 link_tit_p = st.text_input(f"Título do Link {p_idx}:", placeholder="Ex: Vídeo do Passo", key=f"cad_p_link_tit_{p_idx}")
             with col_err_passo:
                 txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", placeholder="Descreva o erro ou solução se falhar aqui...", key=f"cad_p_err_{p_idx}", height=70)
+                files_err = st.file_uploader(f"📸 Imagens/Evidências do Erro (Passo {p_idx})", accept_multiple_files=True, key=f"cad_p_err_file_{p_idx}")
 
             if txt_p.strip():
                 url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
+                url_erro_anexo_p = upload_multiplos_arquivos(files_err) if files_err else None
+
                 passos_novos_lista.append({
                     "passo": p_idx,
                     "texto": txt_p.strip(),
                     "anexo": url_anexo_p,
                     "erro": txt_err_p.strip() if txt_err_p else "",
+                    "erro_anexo": url_erro_anexo_p,
                     "link_url": link_url_p.strip() if link_url_p else "",
-                    "link_titulo": link_tit_p.strip() if link_tit_p else ""
+                    "link_titulo": link_titulo_p.strip() if link_titulo_p else ""
                 })
             st.markdown("---")
 
