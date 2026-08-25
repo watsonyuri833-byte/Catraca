@@ -1,6 +1,6 @@
 streamlit
-pandas
-supabase
+psycopg2-binary
 plotly
-openai
+pandas
+Pillow
 google-genai
