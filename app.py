@@ -773,7 +773,7 @@ with tabs[indice_copilot]:
 indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Organograma)")
 with tabs[indice_onboarding]:
     st.subheader("🌳 Organograma e Mapa Mental de Onboarding")
-    st.caption("Navegue pelos módulos estruturados em árvore hierárquica ou cadastre novos fluxos e subtópicos para o treinamento técnico.")
+    st.caption("Gerencie e visualize seus fluxos e subtópicos cadastrados em árvore hierárquica.")
 
     tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Organograma", "➕ Cadastrar / Gerenciar Tópicos"])
 
@@ -809,11 +809,11 @@ with tabs[indice_onboarding]:
         with st.form("form_novo_onb_arvore", clear_on_submit=True):
             col_o1, col_o2 = st.columns(2)
             with col_o1:
-                cat_input = st.selectbox("Tema Central / Módulo Principal (Ex: Gestão e Financiamento do SUS):", LISTA_SISTEMA)
+                cat_input = st.selectbox("Tema Central / Módulo Principal:", LISTA_SISTEMA)
             with col_o2:
-                sub_input = st.text_input("Subtópico / Ramo (Ex: Planos de Carreiras - PCCV):", placeholder="Ex: Financiamento da Saúde")
+                sub_input = st.text_input("Subtópico / Ramo:", placeholder="Ex: Nome do Subtópico ou Ramo")
 
-            desc_input = st.text_area("📄 Descrição detalhada do conteúdo ou passo a passo:", placeholder="Descreva os marcos normativos, diretrizes ou orientações...", height=150)
+            desc_input = st.text_area("📄 Descrição detalhada do conteúdo ou passo a passo:", placeholder="Descreva as orientações, diretrizes ou etapas...", height=150)
             
             files_input = st.file_uploader("📷 Colar / Enviar Imagens ou Prints de Apoio:", accept_multiple_files=True, key="files_onb_tree")
 
