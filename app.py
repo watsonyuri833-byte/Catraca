@@ -205,7 +205,7 @@ def salvar_manual_db(dados, usuario_email):
     try:
         dados_limpos = limpar_dados_para_json(dados)
         supabase.table("manuais_produto").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "MANUAL_CRIADO", f"Cadastrou item hierárquico: {dados.get('titulo')}")
+        registrar_log(usuario_email, "MANUAL_CRIADO", f"Cadastrou item no mapa: {dados.get('titulo')}")
         return True
     except Exception as e:
         st.error(f"Erro ao salvar: {e}")
@@ -326,7 +326,7 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
     if contexto_man:
         for m in contexto_man:
-            contexto_str += f"[MANUAL/ÁRVORE] Título: {m.get('titulo')} | Categoria: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+            contexto_str += f"[MAPA MENTAL/MANUAL] Título: {m.get('titulo')} | Galho: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
     if contexto_ocor:
         for o in contexto_ocor:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
@@ -415,7 +415,7 @@ df_manuais = buscar_manuais_db()
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
-    "👩‍💻 Onboarding (Legado vs EDesk)",
+    "🌳 Mapa de Onboarding (Legado vs EDesk)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -606,122 +606,89 @@ with tabs[indice_copilot]:
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: ONBOARDING (LEGADO vs EDESK COM PASTAS DE ERROS E IMAGENS)
+# ABA 3: MAPA DE ONBOARDING (ÁRVORE VISUAL & CADASTRO INTEGRADO)
 # ==========================================
-indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Legado vs EDesk)")
+indice_onboarding = abas_navegacao.index("🌳 Mapa de Onboarding (Legado vs EDesk)")
 with tabs[indice_onboarding]:
-    st.subheader("🌳 Onboarding Técnico: Legado vs EDesk")
-    st.caption("Selecione o tipo de instalação (Legado ou EDesk) para consultar os manuais passo a passo ou explorar as pastas específicas de erros e troubleshooting.")
+    st.subheader("🌳 Mapa Hierárquico de Onboarding (Legado vs EDesk)")
+    st.caption("Navegue pelos galhos do mapa mental abaixo. O que é cadastrado aqui reflete exatamente na estrutura visualizada pelos técnicos.")
 
-    tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Manuais e Erros", "➕ Cadastrar Procedimento / Erro"])
+    # Seletor do Nó Raiz principal para Visualizar ou Inserir diretamente no galho
+    galhos_principais = ["Legado", "EDesk"]
+    
+    col_m_acao, col_m_filtro = st.columns([2, 2])
+    with col_m_acao:
+        modo_mapa = st.radio("Modo do Mapa:", ["👁️ Visualizar Mapa de Nós", "➕ Adicionar Novo Nó / Galho"], horizontal=True)
+    with col_m_filtro:
+        galho_selecionado_filtro = st.selectbox("Galho Principal Alvo:", galhos_principais, key="filtro_galho_raiz")
 
-    with tab_obs_ver:
-        if df_manuais.empty:
-            st.info("Nenhum item cadastrado na base ainda. Utilize a aba 'Cadastrar Procedimento / Erro' para adicionar.")
-        else:
-            df_m = df_manuais.copy()
-            for col_n in ["sistema_produto", "hardware", "nivel_3", "nivel_4", "nivel_5", "nivel_1_img", "nivel_2_img", "nivel_3_img", "nivel_4_img", "nivel_5_img"]:
-                if col_n not in df_m.columns:
-                    df_m[col_n] = None
+    st.markdown("---")
 
-            # Nível 1: Legado ou EDesk
-            tipos_instalacao = [t for t in df_m["sistema_produto"].dropna().unique() if t in ["Legado", "EDesk"]]
-            outros_tipos = [t for t in df_m["sistema_produto"].dropna().unique() if t not in ["Legado", "EDesk"]]
+    if df_manuais.empty:
+        st.info("O mapa está vazio. Utilize a opção 'Adicionar Novo Nó / Galho' acima para estruturar o primeiro item.")
+    else:
+        df_m = df_manuais.copy()
+        for col_n in ["sistema_produto", "hardware", "nivel_1_img"]:
+            if col_n not in df_m.columns:
+                df_m[col_n] = None
+
+        # Renderização em formato de Árvore Mental (Nó Raiz -> Galhos -> Conteúdo)
+        for raiz in galhos_principais:
+            df_raiz = df_m[df_m["sistema_produto"] == raiz]
             
-            todas_opcoes_n1 = tipos_instalacao + outros_tipos
-
-            for n1 in sorted(todas_opcoes_n1):
-                icone_pasta = "📂 [Instalação Principal]" if n1 in ["Legado", "EDesk"] else "📁"
-                with st.expander(f"{icone_pasta} {n1}", expanded=True):
-                    df_n1 = df_m[df_m["sistema_produto"] == n1]
-                    renderizar_bloco_imagens(df_n1.iloc[0].get("nivel_1_img"), f"🖼️ Imagens Gerais - {n1}:")
-
-                    # Vamos agrupar visualmente entre o Manual de Instalação e a Pasta de Erros
-                    df_manuais_inst = df_n1[df_n1["hardware"] == "Manual de Instalação"]
-                    df_erros_pasta = df_n1[df_n1["hardware"] == "Erros e Soluções"]
-                    df_outros = df_n1[~df_n1["hardware"].isin(["Manual de Instalação", "Erros e Soluções"])]
-
-                    # Seção 1: Manual de Instalação
-                    if not df_manuais_inst.empty:
-                        st.markdown("### 📘 Manual de Instalação")
-                        for _, row_inst in df_manuais_inst.iterrows():
-                            with st.container(border=True):
-                                st.markdown(f"**📌 {row_inst.get('titulo')}**")
-                                st.markdown(f"{row_inst.get('conteudo')}")
-                                renderizar_bloco_imagens(row_inst.get('anexo_url'), "🖼️ Evidências / Imagens de Instalação:")
-                                if st.button("🗑️ Excluir Manual", key=f"del_inst_{row_inst.get('id')}"):
-                                    deletar_manual_db(row_inst.get('id'), "tecnico@actuar.group")
-                                    st.rerun()
-
-                    # Seção 2: Pasta de Erros
-                    if not df_erros_pasta.empty:
-                        st.markdown("### ⚠️ Pasta de Erros e Soluções")
-                        for _, row_erro in df_erros_pasta.iterrows():
-                            with st.container(border=True):
-                                st.markdown(f"🚨 **Erro Reportado:** `{row_erro.get('titulo')}`")
-                                st.markdown(f"**Como resolver:**\n{row_erro.get('conteudo')}")
-                                renderizar_bloco_imagens(row_erro.get('anexo_url'), "🖼️ Imagens / Evidências do Erro:")
-                                if st.button("🗑️ Excluir Erro", key=f"del_erro_{row_erro.get('id')}"):
-                                    deletar_manual_db(row_erro.get('id'), "tecnico@actuar.group")
-                                    st.rerun()
-
-                    # Outros itens caso existam
-                    for _, row_item in df_outros.iterrows():
-                        with st.container(border=True):
-                            st.markdown(f"🌿 **{row_item.get('titulo')}** (Subpasta: {row_item.get('hardware')})")
-                            st.markdown(f"{row_item.get('conteudo')}")
-                            renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Imagens:")
-                            if st.button("🗑️ Excluir", key=f"del_outro_{row_item.get('id')}"):
-                                deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
-                                st.rerun()
-
-                    st.markdown("---")
-
-    with tab_obs_cad:
-        st.markdown("### ➕ Cadastrar Novo Manual ou Erro na Pasta")
-        st.caption("Escolha se o registro pertence ao **Legado** ou **EDesk**, e defina se é o **Manual de Instalação** ou um item da **Pasta de Erros**.")
-
-        with st.form("form_novo_onb_legado_edesk", clear_on_submit=True):
-            
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                tipo_escolhido = st.selectbox("1º Nível (Pasta Principal):", ["Legado", "EDesk", "Outro"], key="cad_tipo_principal")
-            with col_c2:
-                sub_categoria = st.selectbox("Tipo de Conteúdo:", ["Manual de Instalação", "Erros e Soluções", "Subtópico Adicional"], key="cad_sub_cat")
-
-            if tipo_escolhido == "Outro":
-                tipo_escolhido = st.text_input("Digite o nome da Pasta Principal:", placeholder="Ex: Sistema X")
-
-            st.markdown("---")
-            files_nivel_1 = st.file_uploader("🖼️ Imagem Geral da Pasta Principal (Opcional)", accept_multiple_files=True, key="cad_img_geral")
-
-            st.markdown("---")
-            titulo_item = st.text_input("Título do Manual ou Descrição do Erro:", placeholder="Ex: Erro de Timeout ao conectar no banco de dados / Passo a passo de instalação...", key="cad_titulo_item")
-            
-            descricao_item = st.text_area("📄 Descrição detalhada / Passo a passo de como resolver:", placeholder="Explique detalhadamente o procedimento ou a solução para este erro...", height=150, key="cad_desc_item")
-            
-            files_item = st.file_uploader("📷 Anexar Imagens / Evidências (para este manual ou erro):", accept_multiple_files=True, key="cad_files_item")
-
-            st.markdown("---")
-            if st.form_submit_button("💾 Salvar na Pasta"):
-                if tipo_escolhido and titulo_item and descricao_item:
-                    url_img_geral = upload_multiplos_arquivos(files_nivel_1) if files_nivel_1 else None
-                    url_anexos_item = upload_multiplos_arquivos(files_item) if files_item else None
+            with st.expander(f"📂 **{raiz}** ({len(df_raiz)} itens vinculados)", expanded=(raiz == galho_selecionado_filtro)):
+                if df_raiz.empty:
+                    st.markdown(f"_Nenhum conteúdo cadastrado sob **{raiz}**._")
+                else:
+                    # Sub-galhos: Manual de Instalação vs Erros e Soluções
+                    sub_galhos = df_raiz["hardware"].unique()
                     
-                    dados_cadastro = {
-                        "sistema_produto": str(tipo_escolhido).strip(),
-                        "hardware": sub_categoria, # Usado para separar Manual de Instalação vs Erros e Soluções
-                        "titulo": titulo_item.strip(),
-                        "conteudo": descricao_item.strip(),
-                        "nivel_1_img": url_img_geral,
-                        "anexo_url": url_anexos_item
+                    for sg in sub_galhos:
+                        icone_sg = "📘" if "Manual" in str(sg) else ("⚠️" if "Erro" in str(sg) else "📁")
+                        df_sg = df_raiz[df_raiz["hardware"] == sg]
+                        
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;╰─ 📂 **{sg}**")
+                        
+                        for _, row_item in df_sg.iterrows():
+                            with st.container(border=True):
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╰─ 🔹 **{row_item.get('titulo')}**")
+                                st.markdown(f"{row_item.get('conteudo')}")
+                                renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Evidências / Imagens:")
+                                
+                                if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
+                                    deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
+                                    st.rerun()
+
+    # Se o usuário escolheu adicionar direto na tela do mapa
+    if modo_mapa == "➕ Adicionar Novo Nó / Galho":
+        st.markdown("---")
+        st.markdown(f"### ➕ Adicionar Conteúdo no Galho: **{galho_selecionado_filtro}**")
+        
+        with st.form("form_mapa_interativo", clear_on_submit=True):
+            sub_galho_tipo = st.selectbox("Subpasta do Galho:", ["Manual de Instalação", "Erros e Soluções", "Outro Subtópico"], key="map_sub_g")
+            
+            titulo_no = st.text_input("Título do Tópico / Erro:", placeholder="Ex: Configuração de IP / Erro de timeout...")
+            conteudo_no = st.text_area("Descrição detalhada do nó / Passo a passo:", placeholder="Descreva o procedimento ou a solução exibida no mapa...", height=140)
+            
+            arquivos_no = st.file_uploader("📷 Anexar Imagens / Evidências para este nó:", accept_multiple_files=True, key="map_files")
+            
+            if st.form_submit_button("💾 Inserir Nó no Mapa"):
+                if titulo_no and conteudo_no:
+                    url_anexos_no = upload_multiplos_arquivos(arquivos_no) if arquivos_no else None
+                    
+                    dados_no = {
+                        "sistema_produto": galho_selecionado_filtro,
+                        "hardware": sub_galho_tipo,
+                        "titulo": titulo_no.strip(),
+                        "conteudo": conteudo_no.strip(),
+                        "anexo_url": url_anexos_no
                     }
                     
-                    if salvar_manual_db(dados_cadastro, "tecnico@actuar.group"):
-                        st.toast("Cadastrado com sucesso na pasta selecionada!", icon="🎉")
+                    if salvar_manual_db(dados_no, "tecnico@actuar.group"):
+                        st.toast("Nó adicionado com sucesso ao mapa!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha a Pasta Principal, o Título e a Descrição.")
+                    st.error("Preencha o Título e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
@@ -857,9 +824,9 @@ with tabs[indice_export]:
     conteudo_txt = "=" * 70 + "\nACTUAR.GROUP - EXPORTAÇÃO DA BASE DE CONHECIMENTO\n" + "=" * 70 + "\n\n"
 
     if not df_manuais.empty:
-        conteudo_txt += "--- SEÇÃO 1: ÁRVORE DE PASTAS ---\n"
+        conteudo_txt += "--- SEÇÃO 1: MAPA HIERÁRQUICO DE ONBOARDING ---\n"
         for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Pasta: {row.get('sistema_produto')} | Categoria: {row.get('hardware')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
+            conteudo_txt += f"Galho: {row.get('sistema_produto')} | Subpasta: {row.get('hardware')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
 
     if not df_ocorrencias.empty:
         conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
