@@ -1,1045 +1,1383 @@
-# -*- coding: utf-8 -*-
-import json
+import datetime
 import os
 import re
-import time
+from urllib.parse import quote_plus
+from PIL import Image
 import pandas as pd
+import plotly.express as px
+import psycopg2
 import streamlit as st
-from supabase import Client, create_client
 from google import genai
-from google.genai import types
 
-# ==========================================
-# 1. CONFIGURAÇÃO E DESIGN SYSTEM
-# ==========================================
+# ==============================================================================
+# CONFIGURAÇÃO DA PÁGINA DO STREAMLIT
+# ==============================================================================
 st.set_page_config(
-    page_title="actuar.group - Engineering Hub",
-    page_icon="favicon.png",
+    page_title="StudyQuest Pro — Modern Analytics",
+    page_icon="⚡",
     layout="wide",
 )
 
+# Estilização do Menu Lateral
 st.markdown(
     """
-<style>
-    .stApp { 
-        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%) !important; 
-        color: #c9d1d9 !important;
-    }
-    .stApp p, .stApp label, .stApp span, h1, h2, h3, h4, h5, h6 {
-        color: #e6edf3 !important;
-    }
-    div[data-baseweb="input"],
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="select"],
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="select"] * {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-    }
-    .stApp input, 
-    .stApp textarea, 
-    .stApp select,
-    div[role="combobox"] {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-        border-color: #30363d !important;
-    }
-    div[data-baseweb="input"], div[data-baseweb="select"] {
-        border: 1px solid #30363d !important;
-        border-radius: 8px !important;
-    }
-    div[data-baseweb="input"]:focus-within,
-    div[data-baseweb="select"]:focus-within,
-    textarea:focus {
-        border-color: #58a6ff !important;
-        box-shadow: 0 0 0 1px #58a6ff !important;
-    }
-    ::placeholder, input::placeholder, textarea::placeholder {
-        color: #8b949e !important;
-        opacity: 1 !important;
-    }
-    ul[role="listbox"], ul[role="listbox"] li {
-        background-color: #161b22 !important;
-        color: #f0f6fc !important;
-    }
-    [data-testid="stFileUploader"] {
-        background-color: #161b22 !important;
-        border: 1px dashed #30363d !important;
-        border-radius: 8px !important;
-        padding: 10px;
-    }
-    .stButton>button {
-        border-radius: 8px !important;
-        border: 1px solid #30363d !important;
-        background-color: #21262d !important;
-        color: #c9d1d9 !important;
-        font-weight: 500 !important;
-        transition: all 0.2s !important;
-    }
-    .stButton>button:hover {
-        border-color: #58a6ff !important;
-        color: #58a6ff !important;
-        background-color: #30363d !important;
-        box-shadow: 0 0 10px rgba(88, 166, 255, 0.2) !important;
-    }
-    .streamlit-expanderHeader {
-        background-color: #161b22 !important;
-        border-radius: 8px !important;
-        border: 1px solid #30363d !important;
-        color: #e6edf3 !important;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        border-bottom: 1px solid #30363d;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #161b22 !important;
-        border-radius: 8px 8px 0px 0px !important;
-        border: 1px solid #30363d !important;
-        border-bottom: none !important;
-        padding: 8px 16px !important;
-        color: #8b949e !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #21262d !important;
-        color: #58a6ff !important;
-        border-top: 2px solid #58a6ff !important;
-    }
-
-    /* ANIMAÇÃO DA CATRACA NA SIDEBAR */
-    @keyframes balancoCatraca {
-        0% {
-            transform: rotate(-6deg);
+    <style>
+        div.stRadio > div[role="radiogroup"] {
+            gap: 14px !important;
         }
-        50% {
-            transform: rotate(6deg);
+        div.stRadio [data-baseweb="radio"] div:first-child {
+            background-color: #1e1e1e !important;
+            border: 2px solid #00D26A !important;
         }
-        100% {
-            transform: rotate(-6deg);
+        div.stRadio label {
+            padding: 6px 10px !important;
+            border-radius: 8px;
+            transition: background 0.2s ease;
         }
-    }
-
-    /* Alimenta o balanço na segunda imagem da sidebar (a catraca) */
-    [data-testid="stSidebar"] div[data-testid="stImage"]:nth-of-type(2) img {
-        animation: balancoCatraca 3s ease-in-out infinite !important;
-        border-radius: 8px;
-        transform-origin: center center;
-    }
-</style>
+        div.stRadio label:hover {
+            background-color: rgba(255, 255, 255, 0.07) !important;
+        }
+    </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ==========================================
-# 2. CONEXÃO SUPABASE & GEMINI IA
-# ==========================================
-INIT_URL = st.secrets.get("SUPABASE_URL", "https://agrvmqsspfqhfyxketia.supabase.co")
-INIT_KEY = st.secrets.get("SUPABASE_KEY", "")
-INIT_GEMINI = st.secrets.get("GEMINI_API_KEY", "")
+# ==============================================================================
+# CONFIGURAÇÃO DA API DO GEMINI (COM CORREÇÃO DE AUTENTICAÇÃO)
+# ==============================================================================
+gemini_key = None
+if "GEMINI_API_KEY" in st.secrets:
+  gemini_key = st.secrets["GEMINI_API_KEY"]
 
-if "active_url" not in st.session_state:
-    st.session_state.active_url = INIT_URL
-if "active_key" not in st.session_state:
-    st.session_state.active_key = INIT_KEY
-if "active_gemini_key" not in st.session_state:
-    st.session_state.active_gemini_key = INIT_GEMINI
+# Inicializa o cliente do Gemini de forma segura com a chave configurada
+if gemini_key:
+  client = genai.Client(api_key=gemini_key)
+else:
+  try:
+    client = genai.Client()
+  except Exception:
+    client = None
 
-@st.cache_resource
-def init_supabase(url: str, key: str) -> Client:
-    return create_client(url, key)
 
-try:
-    if st.session_state.active_key:
-        supabase = init_supabase(st.session_state.active_url, st.session_state.active_key)
-    else:
-        supabase = None
-except Exception as e:
-    st.error(f"Erro ao inicializar cliente Supabase: {e}")
-    supabase = None
+# ==============================================================================
+# BACKEND: GERENCIADOR DO SUPABASE (POSTGRESQL) E IA
+# ==============================================================================
+class DatabaseManager:
 
-@st.cache_resource
-def init_gemini(api_key: str):
-    if api_key:
-        return genai.Client(api_key=api_key)
-    return None
+  def __init__(self):
+    pass
 
-gemini_client = init_gemini(st.session_state.active_gemini_key)
-
-# ==========================================
-# 3. MÉTODOS DE BANCO DE DADOS
-# ==========================================
-def buscar_ocorrencias_db():
-    if not supabase or not st.session_state.active_key:
-        st.warning("⚠️ Chave de API do Supabase ausente nas configurações internas.")
-        return pd.DataFrame()
-    try:
-        res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
-        df = pd.DataFrame(res.data)
-        colunas_obrigatorias = ["id", "sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "votos_pos", "votos_neg", "anexo_url"]
-        for col in colunas_obrigatorias:
-            if col not in df.columns:
-                df[col] = None
-        return df
-    except Exception as e:
-        err_msg = str(e)
-        if "401" in err_msg or "Unauthorized" in err_msg or "JWT" in err_msg:
-            st.error("🚨 **Erro 401 (Autenticação Negada):** A chave de acesso ao Supabase expirou ou é inválida.")
-        else:
-            st.error(f"Erro ao buscar ocorrências no banco: {e}")
-        return pd.DataFrame()
-
-def buscar_manuais_db():
-    if not supabase or not st.session_state.active_key:
-        return pd.DataFrame()
-    try:
-        res = supabase.table("manuais_produto").select("*").order("id", desc=True).execute()
-        return pd.DataFrame(res.data)
-    except Exception:
-        return pd.DataFrame()
-
-def registrar_log(usuario_email, acao, detalhes):
-    if not supabase:
-        return
-    try:
-        supabase.table("audit_logs").insert({
-            "usuario_email": usuario_email,
-            "acao": acao,
-            "detalhes": detalhes,
-        }).execute()
-    except Exception as e:
-        print(f"Erro ao registrar log: {e}")
-
-def limpar_dados_para_json(dados):
-    return {k: (None if pd.isna(v) else v) for k, v in dados.items()}
-
-def salvar_ocorrencia_db(dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "CRIOU", f"Cadastrou a ocorrência: {dados.get('problema')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar no Supabase: {e}")
-        return False
-
-def atualizar_ocorrencia_db(ocor_id, dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("ocorrencias").update(dados_limpos).eq("id", ocor_id).execute()
-        registrar_log(usuario_email, "ATUALIZOU", f"Atualizou a ocorrência ID #{ocor_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao atualizar ocorrência no Supabase: {e}")
-        return False
-
-def deletar_ocorrencia_db(ocor_id, usuario_email):
-    try:
-        supabase.table("ocorrencias").delete().eq("id", ocor_id).execute()
-        registrar_log(usuario_email, "EXCLUIU", f"Excluiu a ocorrência ID #{ocor_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao excluir ocorrência no Supabase: {e}")
-        return False
-
-def salvar_manual_db(dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("manuais_produto").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "MANUAL_CRIADO", f"Cadastrou manual técnico: {dados.get('titulo')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar manual: {e}")
-        return False
-
-def deletar_manual_db(manual_id, usuario_email):
-    try:
-        supabase.table("manuais_produto").delete().eq("id", manual_id).execute()
-        registrar_log(usuario_email, "MANUAL_EXCLUIDO", f"Excluiu o manual ID #{manual_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao excluir manual: {e}")
-        return False
-
-def processar_importacao_txt(file_bytes, usuario_email):
-    try:
-        try:
-            texto = file_bytes.decode("utf-8")
-        except Exception:
-            texto = file_bytes.decode("latin-1")
-
-        blocos = texto.split("Erro:")
-        importadas = 0
-
-        for bloco in blocos:
-            if not bloco.strip():
-                continue
-
-            linhas = bloco.strip().split("\n")
-            problema = linhas[0].strip()
-
-            sistema = "Não se aplica / Geral"
-            motivo_partes = []
-            solucao_texto = ""
-
-            for linha in linhas[1:]:
-                l = linha.strip()
-                if not l:
-                    continue
-
-                if l.startswith("Sistema:"):
-                    l_lower = l.lower()
-                    if "[x] ambos" in l_lower:
-                        sistema = "Outro Sistema"
-                    elif "[x] legado" in l_lower:
-                        sistema = "Legado(Acesso)"
-                    elif "[x] the new" in l_lower or "[x] edge" in l_lower:
-                        sistema = "The new(Edge)"
-                elif (
-                    l.startswith("Onde ocorre:")
-                    or l.startswith("Como ocorre:")
-                    or l.startswith("Causa")
-                ):
-                    motivo_partes.append(l)
-                elif l.startswith("Solução:"):
-                    s_limpa = l.replace("Solução:", "").strip()
-                    if s_limpa.startswith("[") and s_limpa.endswith("]"):
-                        s_limpa = s_limpa[1:-1].strip()
-                    solucao_texto = s_limpa
-                elif not l.startswith("Possíveis Causas"):
-                    motivo_partes.append(l)
-
-            if problema:
-                motivo_final = " | ".join(motivo_partes) if motivo_partes else "Não informado"
-                passos_padrao = [{
-                    "passo": 1,
-                    "texto": solucao_texto if solucao_texto else "Não informada",
-                    "anexo": None,
-                }]
-
-                dados = {
-                    "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
-                    "equipamento": "Indiferente",
-                    "problema": problema,
-                    "motivo": motivo_final,
-                    "solucao": json.dumps(passos_padrao),
-                    "status": "🟢 Solução Definitiva",
-                    "nivel": "N1 - Fácil / Rápido",
-                    "anexo_url": None,
-                }
-
-                dados_limpos = limpar_dados_para_json(dados)
-                supabase.table("ocorrencias").insert(dados_limpos).execute()
-                importadas += 1
-
-        if importadas > 0:
-            registrar_log(usuario_email, "IMPORTOU", f"Importou {importadas} ocorrências via TXT.")
-        return importadas
-    except Exception as e:
-        st.error(f"Erro ao processar importação do arquivo TXT: {e}")
-        return 0
-
-def upload_arquivo_unico(file):
-    if not file:
-        return None
-    try:
-        file_name = f"evidencia_{int(time.time())}_{file.name}"
-        file_bytes = file.getvalue()
-
-        try:
-            supabase.storage.from_("anexos_evidencias").upload(
-                path=file_name, file=file_bytes, file_options={"content-type": file.type}
-            )
-        except Exception:
-            pass
-
-        url_res = (
-            supabase.storage.get_public_url("anexos_evidencias", file_name)
-            if hasattr(supabase.storage, "get_public_url")
-            else supabase.storage.from_("anexos_evidencias").get_public_url(file_name)
-        )
-
-        if isinstance(url_res, dict):
-            u = url_res.get("publicUrl") or url_res.get("public_url") or str(url_res)
-        else:
-            u = str(url_res) if url_res else None
-        return u
-    except Exception as e:
-        st.error(f"Erro no upload do arquivo {file.name}: {e}")
-        return None
-
-def upload_multiplos_arquivos(files):
-    if not files:
-        return None
-    urls = []
-    for f in files:
-        u = upload_arquivo_unico(f)
-        if u:
-            urls.append(u)
-    urls = list(dict.fromkeys(urls))
-    return ",".join(urls) if urls else None
-
-# ==========================================
-# 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA CONTINUADA
-# ==========================================
-def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
-    if not query:
-        return [], []
-
-    query_lower = query.lower().strip()
-    stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que", "os", "as", "dos", "das", "por", "mais", "como", "mas", "foi", "ao", "ou", "no", "na"}
-    palavras_query = [p.lower() for p in re.findall(r"\w+", query_lower) if p.lower() not in stopwords and len(p) > 1]
-
-    if not palavras_query:
-        palavras_query = re.findall(r"\w+", query_lower)
-
-    resultados_ocor = []
-    if not df_ocorrencias.empty:
-        for _, row in df_ocorrencias.iterrows():
-            texto = f"{row.get('problema', '')} {row.get('motivo', '')} {row.get('equipamento', '')} {row.get('sistema', '')} {row.get('solucao', '')}".lower()
-            score = sum(3 if p in str(row.get('problema', '')).lower() else 1 for p in palavras_query if p in texto)
-            if score > 0:
-                resultados_ocor.append((score, row.to_dict()))
-        resultados_ocor.sort(key=lambda x: x[0], reverse=True)
-
-    resultados_man = []
-    if not df_manuais.empty:
-        for _, row in df_manuais.iterrows():
-            texto = f"{row.get('titulo', '')} {row.get('sistema_produto', '')} {row.get('conteudo', '')}".lower()
-            score = sum(4 if p in str(row.get('titulo', '')).lower() else 1 for p in palavras_query if p in texto)
-            if score > 0:
-                resultados_man.append((score, row.to_dict()))
-        resultados_man.sort(key=lambda x: x[0], reverse=True)
-
-    return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
-
-def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man):
-    if not gemini_client:
-        return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
-
-    prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
-Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados interna de ocorrências e manuais fornecida abaixo, combinando-a com seu raciocínio técnico avançado.
-
-Diretrizes de Resposta:
-1. Analise o histórico da conversa e os dados da base técnica interna (Ocorrências e Manuais).
-2. Forneça uma resposta estruturada e clara, cruzando os casos cadastrados com sua capacidade analítica de IA para troubleshooting em redes, hardware, protocolos TCP/IP e controle de acesso.
-3. Se houver correspondência na base de dados, utilize-a como referência principal. Caso contrário, raciocine criticamente com base no conhecimento técnico geral de suporte.
-4. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
-"""
-
-    contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
-    for msg in historico_conversa:
-        papel = "TÉCNICO" if msg["role"] == "user" else "COPILOT"
-        contexto_str += f"{papel}: {msg['content']}\n\n"
-
-    contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
-    if contexto_man:
-        for m in contexto_man:
-            contexto_str += f"[MANUAL] Título: {m.get('titulo')} | HW: {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
-    if contexto_ocor:
-        for o in contexto_ocor:
-            contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
+  def get_connection(self):
+    db_config = st.secrets["supabase"]
     
-    if not contexto_man and not contexto_ocor:
-        contexto_str += "[AVISO] Nenhum registro exato encontrado na base interna. Utilize seu raciocínio técnico avançado para sugerir a tratativa ideal.\n\n"
-
-    try:
-        response = gemini_client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=contexto_str,
-            config=types.GenerateContentConfig(
-                system_instruction=prompt_sistema,
-                temperature=0.2,
-            )
+    # Suporte a connection_string legada com tratamento seguro de caracteres especiais (como @ na senha)
+    if "connection_string" in db_config:
+      raw_str = (
+          db_config["connection_string"]
+          .strip()
+          .replace("\n", "")
+          .replace("\r", "")
+      )
+      try:
+        return psycopg2.connect(raw_str)
+      except Exception:
+        match = re.match(
+            r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.*)", raw_str
         )
-        return response.text
+        if match:
+          user, pwd, host, port, dbname = match.groups()
+          encoded_pwd = quote_plus(pwd)
+          safe_str = (
+              f"postgresql://{user}:{encoded_pwd}@{host}:{port}/{dbname}"
+          )
+          return psycopg2.connect(safe_str)
+        raise
+
+    # Forma recomendada com parâmetros separados nos secrets
+    host = db_config.get("host")
+    port = db_config.get("port", "6543")
+    dbname = db_config.get("dbname", "postgres")
+    user = db_config.get("user")
+    pwd = db_config.get("password")
+    
+    encoded_pwd = quote_plus(pwd)
+    safe_str = f"postgresql://{user}:{encoded_pwd}@{host}:{port}/{dbname}"
+    return psycopg2.connect(safe_str)
+
+  def explicar_questao_com_ia(self, enunciado, opcoes_dict, gabarito):
+    if not client:
+      return "Erro: Chave da API do Gemini não configurada nos Secrets."
+    try:
+      opcoes_formatadas = "\n".join(
+          [f"{k}) {v}" for k, v in opcoes_dict.items() if v and v.strip()]
+      )
+      prompt = f"""
+            Atue como um professor especialista em concursos públicos.
+            Explique detalhadamente esta questão, justificando o porquê de o gabarito correto ser a alternativa ({gabarito}) e por que as demais estão incorretas.
+
+            Enunciado:
+            {enunciado}
+
+            Opções:
+            {opcoes_formatadas}
+
+            Gabarito Oficial: {gabarito}
+            """
+      response = client.models.generate_content(
+          model="gemini-1.5-flash", contents=prompt, config={"temperature": 0.2}
+      )
+      return response.text
     except Exception as e:
-        return f"Erro ao processar consulta com o Gemini: {e}"
+      return f"Erro ao consultar a IA: {str(e)}"
 
-# ==========================================
-# 5. SIDEBAR
-# ==========================================
-if "favoritos" not in st.session_state:
-    st.session_state.favoritos = []
-
-with st.sidebar:
-    if os.path.exists("logo_dark.png"):
-        st.image("logo_dark.png", width=70)
-    elif os.path.exists("logo.png"):
-        st.image("logo.png", width=70)
-
-    st.markdown("### actuar.group")
-    st.caption("Engineering Hub & Support Center")
-    st.markdown("---")
-
-    if os.path.exists("catraca.png"):
-        # Removido o argumento 'alt' que causava o TypeError na versão atual do Streamlit
-        st.image("catraca.png", width=240)
-        st.caption(
-            "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
-            "Hardware Oficial<br><b>actuar.group</b></div>",
-            unsafe_allow_html=True,
-        )
-
-# ==========================================
-# 6. CABEÇALHO E NAVEGAÇÃO PRINCIPAL
-# ==========================================
-LISTA_SISTEMA = [
-    "Legado(Acesso)",
-    "The new(Edge)",
-    "Edizz",
-    "AcDesk",
-    "Não se aplica / Geral",
-    "Outro Sistema",
-    "Indiferente",
-]
-LISTA_HARDWARE = [
-    "Catraca litnet1",
-    "Catraca litnet2",
-    "Catraca litnet3",
-    "Catraca Edge",
-    "Catraca Topdata",
-    "Catraca Henry",
-    "Catraca Tecnibra",
-    "Catraca serial",
-    "Catraca control ID block",
-    "Catraca control ID block Next",
-    "Control ID",
-    "Control ID Max",
-    "Webcam",
-    "Facial EVO/Topdata",
-    "Outro Hardware",
-    "Indiferente",
-]
-
-col_header_left, _ = st.columns([6, 4])
-with col_header_left:
-    col_img_logo, col_txt_logo = st.columns([1, 4])
-    with col_img_logo:
-        if os.path.exists("logo_dark.png"):
-            st.image("logo_dark.png", width=60)
-        elif os.path.exists("logo.png"):
-            st.image("logo.png", width=60)
-    with col_txt_logo:
-        st.markdown(
-            "<h1 style='margin:0; padding-top:5px;'>actuar.group</h1>",
-            unsafe_allow_html=True,
-        )
-
-st.markdown("---")
-
-df_ocorrencias = buscar_ocorrencias_db()
-df_manuais = buscar_manuais_db()
-
-abas_navegacao = [
-    "📋 Diagnósticos",
-    "🤖 Gemini IA Copilot",
-    "📚 Manuais & Produtos",
-    "📺 Modo TV",
-    "⭐ Meus Favoritos",
-    "➕ Cadastrar Tratativa",
-    "📥 Importar & Exportar (TXT)",
-    "📜 Audit Log (Gestão)",
-]
-
-tabs = st.tabs(abas_navegacao)
-
-def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
-    if anexo_global and pd.notna(anexo_global) and str(anexo_global).strip() != "":
-        urls_problema = [u.strip() for u in str(anexo_global).split(",") if u.strip()]
-        urls_problema = list(dict.fromkeys(urls_problema))
-
-        if urls_problema:
-            with st.expander(f"📎 Ver Evidências do Problema ({len(urls_problema)} arquivo(s))", expanded=False):
-                for idx_prob, url_file in enumerate(urls_problema):
-                    nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                    nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                    if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                        try:
-                            st.image(url_file, width=450, caption=f"Imagem {idx_prob + 1}: {nome_exibicao}")
-                        except Exception:
-                            st.markdown(f"📥 Baixar Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-                    else:
-                        st.markdown(f"📄 Arquivo {idx_prob + 1}: [**{nome_exibicao}**]({url_file})")
-            st.markdown("---")
-
-    passos = []
+  def processar_texto_localmente(self, texto_bruto):
     try:
-        if solucao_data and str(solucao_data).strip().startswith("["):
-            passos = json.loads(str(solucao_data))
-    except Exception:
-        passos = []
+      gab_match = re.search(
+          r"(?:gabarito|resposta)[:\s]*([a-eA-E])", texto_bruto, re.IGNORECASE
+      )
+      gabarito = gab_match.group(1).upper() if gab_match else "A"
 
-    if passos and isinstance(passos, list):
-        st.markdown("**Solução Recomendada em Etapas:**")
-        for idx, item in enumerate(passos):
-            num_passo = item.get("passo", idx + 1)
-            texto_passo = item.get("texto", "")
-            url_passo = item.get("anexo", None)
+      alt_pattern = re.compile(
+          r"(?:^|\n|\r|\s)([A-Ea-e])[\)\.\-]\s+", re.MULTILINE
+      )
+      matches = list(alt_pattern.finditer(texto_bruto))
 
-            st.markdown(f"**{num_passo}º** {texto_passo}")
+      enunciado = texto_bruto
+      op_a, op_b, op_c, op_d, op_e = "", "", "", "", ""
 
-            if url_passo and pd.notna(url_passo) and str(url_passo).strip() != "":
-                urls_passo = [u.strip() for u in str(url_passo).split(",") if u.strip()]
-                if urls_passo:
-                    with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
-                        for idx_f, url_file in enumerate(urls_passo):
-                            nome_arquivo = url_file.split("/")[-1].split("?")[0]
-                            nome_exibicao = nome_arquivo.split("_", 2)[-1] if "_" in nome_arquivo else nome_arquivo
-                            if url_file.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                                try:
-                                    st.image(url_file, width=450, caption=f"Passo {num_passo}: {nome_exibicao}")
-                                except Exception:
-                                    st.markdown(f"📥 Baixar: [**{nome_exibicao}**]({url_file})")
-                            else:
-                                st.markdown(f"📄 Arquivo: [**{nome_exibicao}**]({url_file})")
-            st.markdown("")
-    else:
-        st.success(f"**Solução Recomendada:**\n{solucao_data}")
+      if matches:
+        enunciado = texto_bruto[: matches[0].start()].strip()
+        alt_texts = {}
 
-# ==========================================
-# ABA 1: DIAGNÓSTICOS (Com Edição Completa e Exclusão)
-# ==========================================
-indice_diag = abas_navegacao.index("📋 Diagnósticos")
-with tabs[indice_diag]:
-    st.subheader("🔍 Base Mapeada de Ocorrências")
-    col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
+        for i in range(len(matches)):
+          letra = matches[i].group(1).upper()
+          inicio_conteudo = matches[i].end()
+          fim_conteudo = (
+              matches[i + 1].start()
+              if i + 1 < len(matches)
+              else len(texto_bruto)
+          )
+          alt_texts[letra] = texto_bruto[inicio_conteudo:fim_conteudo].strip()
 
-    with col_f1:
-        sist_base = set(LISTA_SISTEMA)
-        if not df_ocorrencias.empty and "sistema" in df_ocorrencias.columns:
-            sist_base.update(df_ocorrencias["sistema"].dropna().unique())
-        f_sist = st.selectbox("Filtrar por Sistema:", ["Todos"] + sorted(list(sist_base)), key="f_sist_tab0")
-    with col_f2:
-        hw_base = set(LISTA_HARDWARE)
-        if not df_ocorrencias.empty and "equipamento" in df_ocorrencias.columns:
-            hw_base.update(df_ocorrencias["equipamento"].dropna().unique())
-        f_hw = st.selectbox("Filtrar por Hardware:", ["Todos"] + sorted(list(hw_base)), key="f_hw_tab0")
-    with col_f3:
-        f_busca = st.text_input("🔍 Buscar termo ou palavra-chave:", "", key="f_busca_tab0", placeholder="Ex: Facial, stream, catraca, IP...")
+        op_a = alt_texts.get("A", "")
+        op_b = alt_texts.get("B", "")
+        op_c = alt_texts.get("C", "")
+        op_d = alt_texts.get("D", "")
+        op_e = alt_texts.get("E", "")
 
-    df_filtered = df_ocorrencias.copy()
-    if not df_filtered.empty:
-        if f_sist != "Todos":
-            df_filtered = df_filtered[df_filtered["sistema"] == f_sist]
-        if f_hw != "Todos":
-            df_filtered = df_filtered[df_filtered["equipamento"] == f_hw]
-        if f_busca:
-            palavras = [p.strip() for p in f_busca.split() if p.strip()]
-            if palavras:
-                regex_pattern = "|".join([re.escape(p) for p in palavras])
-                df_filtered = df_filtered[
-                    df_filtered["problema"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
-                    | df_filtered["motivo"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
-                    | df_filtered["solucao"].astype(str).str.contains(regex_pattern, case=False, na=False, regex=True)
-                ]
+        for letra, val in [
+            ("A", op_a),
+            ("B", op_b),
+            ("C", op_c),
+            ("D", op_d),
+            ("E", op_e),
+        ]:
+          if val:
+            val_limpo = re.sub(
+                r"\n+\s*(?:gabarito|resposta)[:\s]*[A-E].*",
+                "",
+                val,
+                flags=re.IGNORECASE,
+            ).strip()
+            if letra == "A":
+              op_a = val_limpo
+            elif letra == "B":
+              op_b = val_limpo
+            elif letra == "C":
+              op_c = val_limpo
+            elif letra == "D":
+              op_d = val_limpo
+            elif letra == "E":
+              op_e = val_limpo
 
-    if df_filtered.empty:
-        st.info("Nenhuma ocorrência encontrada. Verifique os filtros ou as credenciais do banco de dados.")
-    else:
-        st.markdown(f"### 📊 Resultados Filtrados ({len(df_filtered)} registros)")
-        df_display = df_filtered[["sistema", "equipamento", "problema", "status", "nivel"]].copy().reset_index(drop=True)
+      return {
+          "enunciado": enunciado,
+          "op_a": op_a,
+          "op_b": op_b,
+          "op_c": op_c,
+          "op_d": op_d,
+          "op_e": op_e,
+          "gabarito": gabarito,
+          "explicacao": "",
+      }
+    except Exception as e:
+      return {
+          "enunciado": texto_bruto,
+          "op_a": "",
+          "op_b": "",
+          "op_c": "",
+          "op_d": "",
+          "op_e": "",
+          "gabarito": "A",
+          "explicacao": "",
+      }
 
-        evento_tabela = st.dataframe(
-            df_display,
-            column_config={
-                "sistema": "Sistema",
-                "equipamento": "Hardware",
-                "problema": "Problema (Sintoma)",
-                "status": "Status",
-                "nivel": "Nível",
-            },
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
+  def ler_questao_por_imagem(self, image_path):
+    if not client:
+      return "Erro: Chave da API do Gemini não configurada nos Secrets."
+    try:
+      imagem = Image.open(image_path)
+      prompt = """
+            Analise a imagem anexada, contendo uma questão de concurso.
+            Transcreva e organize obrigatoriamente no formato:
+            ENUNCIADO: [...]
+            ALTERNATIVA_A: [...]
+            ALTERNATIVA_B: [...]
+            ALTERNATIVA_C: [...]
+            ALTERNATIVA_D: [...]
+            ALTERNATIVA_E: [...]
+            GABARITO: [...]
+            EXPLICACAO: [...]
+            """
+      response = client.models.generate_content(
+          model="gemini-1.5-flash",
+          contents=[prompt, imagem],
+          config={"temperature": 0.1},
+      )
+      return response.text
+    except Exception as e:
+      return f"Erro ao processar imagem com IA: {str(e)}"
+
+  def salvar_config_geral(self, perfil="Watson", chave="", valor=""):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            """
+                INSERT INTO config_geral (perfil, chave, valor)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (perfil, chave) DO UPDATE SET valor = EXCLUDED.valor
+            """,
+            (perfil, chave, valor),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+  def remover_config_geral(self, perfil="Watson", chave=""):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM config_geral WHERE perfil = %s AND chave = %s",
+            (perfil, chave),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+  def obter_config_geral(self, perfil="Watson", chave="", default=""):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT valor FROM config_geral WHERE perfil = %s AND chave = %s",
+            (perfil, chave),
+        )
+        res = cursor.fetchone()
+        return res[0] if res else default
+
+  def salvar_config_edital(
+      self,
+      perfil="Watson",
+      concurso_nome="",
+      materia="",
+      qtd_questoes=10,
+      peso=1.0,
+  ):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        if materia.strip():
+          cursor.execute(
+              "DELETE FROM edital_config WHERE perfil = %s AND concurso_nome ="
+              " %s AND (materia = '' OR materia ILIKE 'geral')",
+              (perfil, concurso_nome.strip()),
+          )
+        cursor.execute(
+            """
+                INSERT INTO edital_config (perfil, concurso_nome, materia, qtd_questoes, peso)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (perfil, concurso_nome, materia) DO UPDATE SET
+                    qtd_questoes = EXCLUDED.qtd_questoes,
+                    peso = EXCLUDED.peso
+            """,
+            (
+                perfil,
+                concurso_nome.strip(),
+                materia.strip(),
+                int(qtd_questoes),
+                float(peso),
+            ),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+  def remover_materia_edital(
+      self, perfil="Watson", concurso_nome="", materia=""
+  ):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM edital_config WHERE perfil = %s AND concurso_nome = %s"
+            " AND materia = %s",
+            (perfil, concurso_nome.strip(), materia.strip()),
+        )
+        cursor.execute(
+            "SELECT id FROM questoes WHERE perfil = %s AND cargo = %s AND"
+            " materia = %s",
+            (perfil, concurso_nome.strip(), materia.strip()),
+        )
+        q_ids = [row[0] for row in cursor.fetchall()]
+        for q_id in q_ids:
+          cursor.execute(
+              "DELETE FROM historico_respostas WHERE questao_id = %s", (q_id,)
+          )
+          cursor.execute("DELETE FROM questoes WHERE id = %s", (q_id,))
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM edital_config WHERE perfil = %s AND"
+            " concurso_nome = %s AND materia != ''",
+            (perfil, concurso_nome.strip()),
+        )
+        restantes = cursor.fetchone()[0]
+        if restantes == 0:
+          cursor.execute(
+              """
+              INSERT INTO edital_config (perfil, concurso_nome, materia, qtd_questoes, peso)
+              VALUES (%s, %s, '', 0, 1.0)
+              ON CONFLICT (perfil, concurso_nome, materia) DO NOTHING
+              """,
+              (perfil, concurso_nome.strip()),
+          )
+
+        conn.commit()
+    st.cache_data.clear()
+
+  def deletar_concurso_inteiro(self, perfil="Watson", concurso_nome=""):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM edital_config WHERE perfil = %s AND concurso_nome ="
+            " %s",
+            (perfil, concurso_nome.strip()),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+  def obter_configs_edital(self, perfil="Watson", concurso_nome=None):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        if concurso_nome and concurso_nome != "Todos" and concurso_nome.strip():
+          cursor.execute(
+              "SELECT materia, qtd_questoes, peso FROM edital_config WHERE"
+              " perfil = %s AND concurso_nome = %s",
+              (perfil, concurso_nome.strip()),
+          )
+        else:
+          cursor.execute(
+              "SELECT materia, qtd_questoes, peso FROM edital_config WHERE"
+              " perfil = %s",
+              (perfil,),
+          )
+        return {
+            row[0]: {"qtd": row[1], "peso": row[2]}
+            for row in cursor.fetchall()
+            if row[0] and row[0].strip().lower() != "geral"
+        }
+
+  def obter_concursos_cadastrados(self, perfil="Watson"):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT concurso_nome FROM edital_config WHERE perfil = %s"
+            " UNION SELECT DISTINCT cargo FROM questoes WHERE perfil = %s AND"
+            " cargo IS NOT NULL AND cargo != ''",
+            (perfil, perfil),
+        )
+        res = [row[0] for row in cursor.fetchall() if row[0]]
+        return sorted(res)
+
+  def registrar_resposta(self, questao_id, resposta_usuario):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            """
+                SELECT gabarito, total_erros, erros_consecutivos, total_tentativas 
+                FROM questoes WHERE id = %s
+            """,
+            (questao_id,),
+        )
+        res = cursor.fetchone()
+        if not res:
+          return False, 0, 0
+
+        gabarito, total_erros, erros_cons, total_tent = res
+        total_erros = total_erros or 0
+        erros_cons = erros_cons or 0
+        total_tent = total_tent or 0
+
+        acertou = (
+            1
+            if resposta_usuario.strip().upper() == gabarito.strip().upper()
+            else 0
+        )
+        novo_total_tent = total_tent + 1
+
+        if acertou:
+          novo_erros_cons = 0
+          novo_total_erros = total_erros
+        else:
+          novo_erros_cons = erros_cons + 1
+          novo_total_erros = total_erros + 1
+
+        cursor.execute(
+            """
+                UPDATE questoes 
+                SET total_erros = %s, erros_consecutivos = %s, total_tentativas = %s
+                WHERE id = %s
+            """,
+            (novo_total_erros, novo_erros_cons, novo_total_tent, questao_id),
+        )
+        cursor.execute(
+            """
+                INSERT INTO historico_respostas (questao_id, resposta_usuario, acertou)
+                VALUES (%s, %s, %s)
+            """,
+            (questao_id, resposta_usuario.upper(), acertou),
+        )
+        conn.commit()
+    st.cache_data.clear()
+    return bool(acertou), novo_erros_cons, novo_total_erros
+
+  def obter_questoes(
+      self,
+      perfil="Watson",
+      cargo=None,
+      materia=None,
+      filtro_erros="Todos",
+  ):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        query = (
+            "SELECT id, cargo, materia, enunciado, opcao_a, opcao_b, opcao_c,"
+            " opcao_d, opcao_e, gabarito, explicacao, total_tentativas,"
+            " total_erros, erros_consecutivos FROM questoes WHERE perfil = %s"
+        )
+        params = [perfil]
+        if (
+            cargo
+            and cargo != "Todos"
+            and cargo != "Cargo / Concurso"
+            and cargo != "Nenhum cargo cadastrado"
+        ):
+          query += " AND cargo = %s"
+          params.append(cargo)
+        if materia and materia != "Todas":
+          query += " AND materia = %s"
+          params.append(materia)
+
+        if filtro_erros == "Erros 1x":
+          query += " AND erros_consecutivos = 1"
+        elif filtro_erros == "Erros 2x":
+          query += " AND erros_consecutivos = 2"
+        elif filtro_erros == "Erros 3x+":
+          query += " AND erros_consecutivos >= 3"
+
+        query += " ORDER BY RANDOM()"
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
+  def obter_cargos(self, perfil="Watson"):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT cargo FROM questoes WHERE perfil = %s AND cargo IS"
+            " NOT NULL AND cargo != '' ORDER BY cargo",
+            (perfil,),
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+  def obter_cargos_totais(self, perfil="Watson"):
+    cargos_set = set(self.obter_concursos_cadastrados(perfil))
+    for c in self.obter_cargos(perfil):
+      if c:
+        cargos_set.add(c)
+    return sorted(list(cargos_set))
+
+  def obter_materias(self, perfil="Watson", cargo=None):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        if cargo and cargo != "Todos" and cargo != "Cargo / Concurso":
+          cursor.execute(
+              "SELECT DISTINCT materia FROM questoes WHERE perfil = %s AND"
+              " cargo = %s AND materia IS NOT NULL AND materia != '' ORDER BY"
+              " materia",
+              (perfil, cargo),
+          )
+          materias_banco = [
+              row[0]
+              for row in cursor.fetchall()
+              if row[0] and row[0].strip().lower() != "geral"
+          ]
+        else:
+          cursor.execute(
+              "SELECT DISTINCT materia FROM questoes WHERE perfil = %s AND"
+              " materia IS NOT NULL AND materia != '' ORDER BY materia",
+              (perfil,),
+          )
+          materias_banco = [
+              row[0]
+              for row in cursor.fetchall()
+              if row[0] and row[0].strip().lower() != "geral"
+          ]
+
+        configs = self.obter_configs_edital(perfil, cargo)
+        materias_edital = [
+            m for m in configs.keys() if m and m.strip().lower() != "geral"
+        ]
+        return sorted(list(set(materias_banco + materias_edital)))
+
+  def adicionar_questao(
+      self,
+      perfil="Watson",
+      cargo="",
+      materia="",
+      enunciado="",
+      op_a="",
+      op_b="",
+      op_c="",
+      op_d="",
+      op_e="",
+      gabarito="A",
+      explicacao="",
+  ):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            """
+                INSERT INTO questoes (perfil, cargo, materia, enunciado, opcao_a, opcao_b, opcao_c, opcao_d, opcao_e, gabarito, explicacao)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                perfil,
+                cargo.strip(),
+                materia.strip(),
+                enunciado,
+                op_a,
+                op_b,
+                op_c,
+                op_d,
+                op_e,
+                gabarito.upper(),
+                explicacao,
+            ),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+  def deletar_questao(self, questao_id):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM historico_respostas WHERE questao_id = %s",
+            (questao_id,),
+        )
+        cursor.execute("DELETE FROM questoes WHERE id = %s", (questao_id,))
+        conn.commit()
+    st.cache_data.clear()
+
+  def obter_analise_dashboard(self, perfil="Watson", concurso_ativo=None):
+    with self.get_connection() as conn:
+      with conn.cursor() as cursor:
+        if (
+            concurso_ativo
+            and concurso_ativo != "Todos"
+            and concurso_ativo.strip()
+        ):
+          cursor.execute(
+              "SELECT materia, qtd_questoes, peso, concurso_nome FROM"
+              " edital_config WHERE perfil = %s AND concurso_nome = %s",
+              (perfil, concurso_ativo.strip()),
+          )
+        else:
+          cursor.execute(
+              "SELECT materia, qtd_questoes, peso, concurso_nome FROM"
+              " edital_config WHERE perfil = %s",
+              (perfil,),
+          )
+        edital_rows = cursor.fetchall()
+        edital_items = {}
+        for row in edital_rows:
+          mat, qtd, peso, conc = row
+          if mat and mat.strip() and mat.strip().lower() != "geral":
+            edital_items[(conc, mat)] = {"qtd": qtd, "peso": peso}
+
+        if (
+            concurso_ativo
+            and concurso_ativo != "Todos"
+            and concurso_ativo.strip()
+        ):
+          cursor.execute(
+              "SELECT DISTINCT materia, COALESCE(NULLIF(cargo, ''), %s) FROM"
+              " questoes WHERE perfil = %s AND cargo = %s AND materia IS NOT"
+              " NULL",
+              (concurso_ativo.strip(), perfil, concurso_ativo.strip()),
+          )
+        else:
+          cursor.execute(
+              "SELECT DISTINCT materia, COALESCE(NULLIF(cargo, ''), 'Geral')"
+              " FROM questoes WHERE perfil = %s AND materia IS NOT NULL",
+              (perfil,),
+          )
+        questoes_rows = cursor.fetchall()
+
+        all_pairs = set(edital_items.keys())
+        for mat, conc in questoes_rows:
+          if mat and mat.strip() and mat.strip().lower() != "geral":
+            all_pairs.add((conc, mat))
+
+        detalhes_materias = []
+        materia_mais_critica = "Nenhuma"
+        max_pontos_perdidos = -1.0
+        pontuacao_maxima_prova = 0.0
+        pontuacao_projetada = 0.0
+        total_erros_geral = 0
+        total_tentativas_geral = 0
+
+        if (
+            concurso_ativo
+            and concurso_ativo != "Todos"
+            and concurso_ativo.strip()
+        ):
+          cursor.execute(
+              "SELECT COUNT(id) FROM questoes WHERE perfil = %s AND cargo = %s"
+              " AND explicacao IS NOT NULL AND TRIM(explicacao) != ''",
+              (perfil, concurso_ativo.strip()),
+          )
+        else:
+          cursor.execute(
+              "SELECT COUNT(id) FROM questoes WHERE perfil = %s AND"
+              " explicacao IS NOT NULL AND TRIM(explicacao) != ''",
+              (perfil,),
+          )
+        total_comentadas = cursor.fetchone()[0] or 0
+
+        for conc, mat in sorted(all_pairs, key=lambda x: (x[0], x[1])):
+          cfg = edital_items.get((conc, mat), {"qtd": 0, "peso": 1.0})
+          qtd_prova = cfg["qtd"]
+          peso = cfg["peso"]
+
+          cursor.execute(
+              """
+                  SELECT COUNT(id), SUM(total_tentativas), SUM(total_erros) 
+                  FROM questoes WHERE perfil = %s AND (cargo = %s OR (%s = 'Geral' AND (cargo IS NULL OR cargo = ''))) AND materia = %s
+              """,
+              (perfil, conc, conc, mat),
+          )
+          q_cad, tent, erros = cursor.fetchone()
+          q_cad = q_cad or 0
+          tent = tent or 0
+          erros = erros or 0
+          acertos = tent - erros
+
+          total_erros_geral += erros
+          total_tentativas_geral += tent
+
+          pontos_possiveis_mat = qtd_prova * peso
+          pontuacao_maxima_prova += pontos_possiveis_mat
+
+          if tent > 0:
+            taxa_acerto = (acertos / tent) * 100.0
+            pontos_estimados_mat = pontos_possiveis_mat * (taxa_acerto / 100.0)
+            pontos_perdidos_mat = pontos_possiveis_mat - pontos_estimados_mat
+          else:
+            taxa_acerto = 0.0
+            pontos_estimados_mat = 0.0
+            pontos_perdidos_mat = 0.0
+
+          pontuacao_projetada += pontos_estimados_mat
+
+          if (
+              tent > 0
+              and pontos_perdidos_mat > max_pontos_perdidos
+              and taxa_acerto < 100.0
+          ):
+            max_pontos_perdidos = pontos_perdidos_mat
+            materia_mais_critica = f"{mat} ({conc})"
+
+          detalhes_materias.append({
+              "concurso_nome": conc,
+              "materia": mat,
+              "qtd_prova": qtd_prova,
+              "peso": peso,
+              "q_cadastradas": q_cad,
+              "tentativas": tent,
+              "certas": acertos,
+              "erradas": erros,
+              "taxa_acerto": taxa_acerto,
+              "pontos_possiveis": pontos_possiveis_mat,
+              "pontos_estimados": pontos_estimados_mat,
+              "pontos_perdidos": pontos_perdidos_mat,
+          })
+
+        certas_geral = total_tentativas_geral - total_erros_geral
+        taxa_global = (
+            (certas_geral / total_tentativas_geral * 100.0)
+            if total_tentativas_geral > 0
+            else 0.0
         )
 
-        ocor_id_selecionado = None
-        selected_rows = []
-        if isinstance(evento_tabela, dict) and "selection" in evento_tabela:
-            selected_rows = evento_tabela["selection"].get("rows", [])
-        elif hasattr(evento_tabela, "selection") and hasattr(evento_tabela.selection, "rows"):
-            selected_rows = evento_tabela.selection.rows
+        return {
+            "nome_concurso": concurso_ativo,
+            "materias_detalhes": detalhes_materias,
+            "materia_mais_critica": (
+                materia_mais_critica if max_pontos_perdidos > 0 else "Nenhuma"
+            ),
+            "pontuacao_projetada": pontuacao_projetada,
+            "pontuacao_maxima": pontuacao_maxima_prova,
+            "total": total_tentativas_geral,
+            "certas": certas_geral,
+            "erradas": total_erros_geral,
+            "comentadas": total_comentadas,
+            "taxa_global": taxa_global,
+        }
 
-        if selected_rows:
-            idx_tabela = selected_rows[0]
-            df_filtered_reset = df_filtered.reset_index(drop=True)
-            ocor_id_selecionado = int(df_filtered_reset.iloc[idx_tabela]["id"])
 
-        if ocor_id_selecionado:
-            row = df_filtered[df_filtered["id"] == ocor_id_selecionado].iloc[0]
-            ocor_id = int(row["id"])
-            sist = row.get("sistema", "N/A")
-            hw = row.get("equipamento", "N/A")
-            prob = row.get("problema", "Sem descrição")
-            status = row.get("status", "🟢 Solução Definitiva")
-            nivel = row.get("nivel", "N1")
-            anexo = row.get("anexo_url", None)
-            solucao_val = row.get("solucao", "")
+# Limpa qualquer cache anterior para evitar conflito de instâncias
+st.cache_resource.clear()
 
-            is_fav = ocor_id in st.session_state.favoritos
-            texto_botao_fav = "⭐ Remover dos Favoritos" if is_fav else "☆ Favoritar Chamado"
 
-            st.markdown("---")
-            with st.container(border=True):
-                col_det_title, col_det_fav = st.columns([4, 1])
-                with col_det_title:
-                    st.markdown(f"### 🚨 [ID #{ocor_id}] {prob}")
-                with col_det_fav:
-                    if st.button(texto_botao_fav, key=f"fav_btn_{ocor_id}"):
-                        if is_fav:
-                            st.session_state.favoritos = [i for i in st.session_state.favoritos if i != ocor_id]
-                            st.toast("Removido dos favoritos!", icon="🗑️")
-                        else:
-                            if ocor_id not in st.session_state.favoritos:
-                                st.session_state.favoritos.append(ocor_id)
-                            st.toast("Adicionado aos favoritos!", icon="⭐")
-                        st.rerun()
+@st.cache_resource
+def get_db():
+  return DatabaseManager()
 
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**💻 Sistema:** {sist}")
-                c2.markdown(f"**⚙️ Hardware:** {hw}")
-                c3.markdown(f"**📌 Status:** {status}  \n**📊 Nível:** {nivel}")
 
-                st.markdown(f"**Motivo (Causa Raiz):**\n{row.get('motivo', '-')}")
-                st.markdown("---")
+db = get_db()
 
-                renderizar_solucao_estruturada(solucao_val, anexo)
 
-                st.markdown("---")
-                col_acao_1, col_acao_2 = st.columns(2)
-                
-                edit_key_state = f"edit_mode_{ocor_id}"
-                if edit_key_state not in st.session_state:
-                    st.session_state[edit_key_state] = False
+# --- FUNÇÕES CACHEADAS ---
+@st.cache_data(ttl=60)
+def cached_obter_analise_dashboard(perfil, concurso_ativo):
+  return db.obter_analise_dashboard(perfil, concurso_ativo)
 
-                with col_acao_1:
-                    if st.button("✏️ Editar Ocorrência Selecionada", key=f"btn_edit_{ocor_id}"):
-                        st.session_state[edit_key_state] = not st.session_state[edit_key_state]
-                        st.rerun()
 
-                with col_acao_2:
-                    if st.button("🗑️ Excluir Ocorrência Selecionada", key=f"btn_del_{ocor_id}", type="secondary"):
-                        if deletar_ocorrencia_db(ocor_id, "tecnico@actuar.group"):
-                            st.toast(f"Ocorrência #{ocor_id} excluída com sucesso!", icon="🗑️")
-                            time.sleep(0.8)
-                            st.rerun()
+@st.cache_data(ttl=60)
+def cached_obter_questoes(perfil, cargo, materia, filtro_erros):
+  return db.obter_questoes(perfil, cargo, materia, filtro_erros)
 
-                if st.session_state[edit_key_state]:
-                    st.markdown(f"### 📝 Editando Ocorrência ID #{ocor_id}")
-                    
-                    try:
-                        idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
-                    except ValueError:
-                        idx_sist = 0
 
-                    try:
-                        idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
-                    except ValueError:
-                        idx_hw = 0
+@st.cache_data(ttl=300)
+def cached_obter_cargos_totais(perfil):
+  return db.obter_cargos_totais(perfil)
 
-                    status_opcoes = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
-                    try:
-                        idx_status = status_opcoes.index(status) if status in status_opcoes else 0
-                    except ValueError:
-                        idx_status = 0
 
-                    nivel_opcoes = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
-                    try:
-                        idx_nivel = nivel_opcoes.index(nivel) if nivel in nivel_opcoes else 0
-                    except ValueError:
-                        idx_nivel = 0
+@st.cache_data(ttl=300)
+def cached_obter_materias(perfil, cargo):
+  return db.obter_materias(perfil, cargo)
 
-                    passos_atuais = []
-                    try:
-                        if solucao_val and str(solucao_val).strip().startswith("["):
-                            passos_atuais = json.loads(str(solucao_val))
-                    except Exception:
-                        passos_atuais = []
 
-                    with st.form(f"form_editar_ocorrencia_{ocor_id}"):
-                        col_e1, col_e2 = st.columns(2)
-                        with col_e1:
-                            edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"edit_hw_{ocor_id}")
-                            edit_status = st.selectbox("📌 Status:", status_opcoes, index=idx_status, key=f"edit_st_{ocor_id}")
-                        with col_e2:
-                            edit_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, index=idx_sist, key=f"edit_sis_{ocor_id}")
-                            edit_nivel = st.selectbox("📊 Nível:", nivel_opcoes, index=idx_nivel, key=f"edit_niv_{ocor_id}")
+# Inicialização do Session State
+if "questoes_lista" not in st.session_state:
+  st.session_state.questoes_lista = []
+if "indice_atual" not in st.session_state:
+  st.session_state.indice_atual = 0
+if "resposta_enviada" not in st.session_state:
+  st.session_state.resposta_enviada = False
+if "resultado_atual" not in st.session_state:
+  st.session_state.resultado_atual = None
+if "concurso_selecionado" not in st.session_state:
+  st.session_state.concurso_selecionado = "Geral (Todos)"
 
-                        edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"edit_prob_{ocor_id}")
-                        edit_files_prob = st.file_uploader("📎 Novos Arquivos / Evidências do Problema:", accept_multiple_files=True, key=f"edit_prob_files_{ocor_id}")
-                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"edit_motivo_{ocor_id}")
+if "form_enunciado" not in st.session_state:
+  st.session_state.form_enunciado = ""
+if "form_op_a" not in st.session_state:
+  st.session_state.form_op_a = ""
+if "form_op_b" not in st.session_state:
+  st.session_state.form_op_b = ""
+if "form_op_c" not in st.session_state:
+  st.session_state.form_op_c = ""
+if "form_op_d" not in st.session_state:
+  st.session_state.form_op_d = ""
+if "form_op_e" not in st.session_state:
+  st.session_state.form_op_e = ""
+if "form_gabarito" not in st.session_state:
+  st.session_state.form_gabarito = "A"
+if "form_explicacao" not in st.session_state:
+  st.session_state.form_explicacao = ""
 
-                        st.markdown("### 🛠️ Passos da Solução (Editar ou Adicionar)")
-                        passos_editados_lista = []
-                        
-                        for p_idx in range(1, 5):
-                            passo_existente_obj = next((p for p in passos_atuais if p.get("passo") == p_idx), None)
-                            texto_padrao_passo = passo_existente_obj.get("texto", "") if passo_existente_obj else ""
-                            anexo_padrao_passo = passo_existente_obj.get("anexo", None) if passo_existente_obj else None
+# ==============================================================================
+# FRONTEND: STREAMLIT APP UI
+# ==============================================================================
+st.sidebar.title("⚡ STUDYQUEST")
 
-                            col_p_txt, col_p_file = st.columns([2, 1])
-                            with col_p_txt:
-                                txt_p = st.text_area(f"Descrição do Passo {p_idx}:", value=texto_padrao_passo, key=f"edit_p_txt_{ocor_id}_{p_idx}")
-                            with col_p_file:
-                                files_p = st.file_uploader(f"Atualizar Anexos Passo {p_idx}", accept_multiple_files=True, key=f"edit_p_file_{ocor_id}_{p_idx}")
+# --- SELETOR DE PERFIL (Watson, Laylla, Gabriel) ---
+if "perfil_ativo" not in st.session_state:
+  st.session_state.perfil_ativo = "Watson"
 
-                            if txt_p.strip():
-                                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else anexo_padrao_passo
-                                passos_editados_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
+perfis_disponiveis = ["Watson", "Laylla", "Gabriel"]
+perfil_escolhido = st.sidebar.selectbox(
+    "👤 Perfil Ativo", perfis_disponiveis, key="selectbox_perfil"
+)
 
-                        col_salvar_edicao, col_cancelar_edicao = st.columns(2)
-                        with col_salvar_edicao:
-                            btn_salvar_alt = st.form_submit_button("💾 Salvar Alterações")
-                        with col_cancelar_edicao:
-                            btn_fechar_alt = st.form_submit_button("❌ Fechar Edição")
+if perfil_escolhido != st.session_state.perfil_ativo:
+  st.session_state.perfil_ativo = perfil_escolhido
+  st.session_state.questoes_lista = []
+  st.session_state.indice_atual = 0
+  st.session_state.resposta_enviada = False
+  st.session_state.resultado_atual = None
+  st.rerun()
 
-                        if btn_fechar_alt:
-                            st.session_state[edit_key_state] = False
-                            st.rerun()
+st.sidebar.markdown("---")
+menu = st.sidebar.radio(
+    "Navegação", ["📊 Dashboard", "📖 Questões", "➕ Cadastrar", "💾 Backup"]
+)
 
-                        if btn_salvar_alt:
-                            if edit_prob and edit_motivo and passos_editados_lista:
-                                json_solucao_editada = json.dumps(passos_editados_lista)
-                                url_anexo_prob = upload_multiplos_arquivos(edit_files_prob) if edit_files_prob else anexo
+perfil_atual = st.session_state.perfil_ativo
 
-                                dados_atualizados = {
-                                    "sistema": edit_sist,
-                                    "equipamento": edit_hw,
-                                    "problema": edit_prob,
-                                    "motivo": edit_motivo,
-                                    "solucao": json_solucao_editada,
-                                    "status": edit_status,
-                                    "nivel": edit_nivel,
-                                    "anexo_url": url_anexo_prob,
-                                }
+if menu == "📊 Dashboard":
+  st.title(f"📊 Dashboard & Análise Estratégica ({perfil_atual})")
 
-                                if atualizar_ocorrencia_db(ocor_id, dados_atualizados, "tecnico@actuar.group"):
-                                    st.session_state[edit_key_state] = False
-                                    st.toast(f"Ocorrência #{ocor_id} atualizada com sucesso!", icon="✅")
-                                    time.sleep(0.8)
-                                    st.rerun()
-                            else:
-                                st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
+  cargos_cadastrados = db.obter_concursos_cadastrados(perfil_atual)
+  opcoes_concurso = ["Geral (Todos)"] + cargos_cadastrados
 
-# ==========================================
-# ABA 2: GEMINI IA COPILOT (ANÁLISE RAG + IA EM PRIMEIRO LUGAR)
-# ==========================================
-indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
-with tabs[indice_copilot]:
-    st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.caption("O Copilot cruza instantaneamente a sua dúvida com o banco de dados interno e entrega a resposta fundamentada pela IA. Continue conversando logo abaixo se precisar ajustar detalhes.")
+  with st.container(border=True):
+    st.subheader("🎯 Seleção e Gestão de Concursos")
+    col_sel, col_novo, col_del = st.columns([3, 3, 2])
 
-    if "historico_copilot" not in st.session_state:
-        st.session_state.historico_copilot = []
+    with col_sel:
+      current_idx = 0
+      if st.session_state.concurso_selecionado in opcoes_concurso:
+        current_idx = opcoes_concurso.index(
+            st.session_state.concurso_selecionado
+        )
 
-    col_cp_top, col_cp_reset = st.columns([5, 1])
-    with col_cp_reset:
-        if st.button("🔄 Novo Tópico"):
-            st.session_state.historico_copilot = []
+      concurso_escolhido = st.selectbox(
+          "Concurso Ativo", opcoes_concurso, index=current_idx
+      )
+      if concurso_escolhido != st.session_state.concurso_selecionado:
+        st.session_state.concurso_selecionado = concurso_escolhido
+        st.rerun()
+
+    with col_novo:
+      novo_concurso_input = st.text_input("Criar Novo Concurso")
+      if st.button("➕ Adicionar Concurso"):
+        if novo_concurso_input.strip():
+          db.salvar_config_edital(
+              perfil_atual, novo_concurso_input.strip(), "", 0, 1.0
+          )
+          st.session_state.concurso_selecionado = novo_concurso_input.strip()
+          st.success(f"Concurso '{novo_concurso_input.strip()}' criado!")
+          st.rerun()
+        else:
+          st.warning("Digite o nome do concurso!")
+
+    with col_del:
+      st.markdown("<br>", unsafe_allow_html=True)
+      if (
+          st.session_state.concurso_selecionado != "Geral (Todos)"
+          and st.button("🗑️ Excluir Concurso Ativo", use_container_width=True)
+      ):
+        db.deletar_concurso_inteiro(
+            perfil_atual, st.session_state.concurso_selecionado
+        )
+        st.success("Concurso excluído!")
+        st.session_state.concurso_selecionado = "Geral (Todos)"
+        st.rerun()
+
+  ativo_param = (
+      None
+      if st.session_state.concurso_selecionado == "Geral (Todos)"
+      else st.session_state.concurso_selecionado
+  )
+  dados = cached_obter_analise_dashboard(perfil_atual, ativo_param)
+
+  total = dados.get("total", 0)
+  certas = dados.get("certas", 0)
+  erradas = dados.get("erradas", 0)
+  taxa = dados.get("taxa_global", 0.0)
+  comentadas = dados.get("comentadas", 0)
+
+  st.markdown("### 📈 Visão Geral de Desempenho")
+  col1, col2, col3, col4, col5 = st.columns(5)
+  with col1:
+    with st.container(border=True):
+      st.metric("Total Resoluções", total, delta="Geral")
+  with col2:
+    with st.container(border=True):
+      st.metric("Resoluções Certas", certas, delta="Acertos")
+  with col3:
+    with st.container(border=True):
+      st.metric(
+          "Resoluções Erradas", erradas, delta="Erros", delta_color="inverse"
+      )
+  with col4:
+    with st.container(border=True):
+      st.metric("Taxa de Acerto", f"{taxa:.2f}%")
+  with col5:
+    with st.container(border=True):
+      st.metric("Comentadas", comentadas)
+
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  c_info1, c_info2 = st.columns([3, 2])
+  with c_info1:
+    with st.container(border=True):
+      st.markdown("##### 🥧 Peso e Pontos das Matérias no Concurso")
+      if dados["materias_detalhes"]:
+        df_mat = pd.DataFrame(dados["materias_detalhes"])
+        fig = px.pie(
+            df_mat,
+            names="materia",
+            values="pontos_possiveis",
+            hole=0.4,
+        )
+        fig.update_layout(
+            margin=dict(t=10, b=10, l=10, r=10),
+            height=240,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5
+            ),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+      else:
+        st.info("Nenhuma matéria cadastrada neste concurso para gerar o gráfico.")
+  with c_info2:
+    with st.container(border=True):
+      st.metric("⚠️ PONTO CEGO (MAIOR DEFICIT)", dados["materia_mais_critica"])
+
+  st.markdown("---")
+
+  # --- FORMULÁRIO DE CADASTRO DE MATÉRIAS ---
+  with st.container(border=True):
+    st.subheader("⚙️ Cadastrar e Configurar Matérias no Edital")
+
+    with st.form("form_edital_multi"):
+      st.markdown("##### Adicionar / Atualizar Matéria")
+
+      concursos_disponiveis_form = (
+          cargos_cadastrados if cargos_cadastrados else ["Geral"]
+      )
+      default_conc_idx = 0
+      if st.session_state.concurso_selecionado in concursos_disponiveis_form:
+        default_conc_idx = concursos_disponiveis_form.index(
+            st.session_state.concurso_selecionado
+        )
+      elif st.session_state.concurso_selecionado != "Geral (Todos)":
+        concursos_disponiveis_form = [
+            st.session_state.concurso_selecionado
+        ] + concursos_disponiveis_form
+        default_conc_idx = 0
+
+      fc_conc, f1, f2, f3 = st.columns([2, 2, 1, 1])
+      with fc_conc:
+        concurso_alvo = st.selectbox(
+            "Concurso Alvo",
+            options=concursos_disponiveis_form,
+            index=default_conc_idx,
+        )
+      with f1:
+        mat_input = st.text_input("Nome da Matéria (ex: Direito Administrativo)")
+      with f2:
+        qtd_input = st.text_input("Qtd Questões na Prova", value="10")
+      with f3:
+        peso_input = st.text_input("Peso da Matéria", value="1.0")
+
+      btn_salvar_edital = st.form_submit_button("+ Adicionar Matéria ao Edital")
+      if btn_salvar_edital:
+        if (
+            concurso_alvo
+            and mat_input.strip()
+            and qtd_input.strip()
+            and peso_input.strip()
+        ):
+          try:
+            db.salvar_config_edital(
+                perfil_atual,
+                concurso_alvo.strip(),
+                mat_input.strip(),
+                int(qtd_input),
+                float(peso_input),
+            )
+            st.success(
+                f"Matéria '{mat_input.strip()}' adicionada ao edital de"
+                f" '{concurso_alvo.strip()}'!"
+            )
+            st.rerun()
+          except ValueError:
+            st.error("Quantidade deve ser inteiro e Peso deve ser decimal.")
+        else:
+          st.warning("Preencha todos os campos e selecione o concurso alvo!")
+
+  st.markdown("---")
+  titulo_analise = (
+      f"📋 Rendimento por Matéria — {st.session_state.concurso_selecionado}"
+  )
+  st.subheader(titulo_analise)
+
+  if not dados["materias_detalhes"]:
+    st.info(
+        "Nenhuma matéria cadastrada neste concurso ainda. Adicione uma acima!"
+    )
+  else:
+    for item in dados["materias_detalhes"]:
+      with st.container(border=True):
+        cols = st.columns([3, 1])
+        with cols[0]:
+          st.markdown(
+              f"### 📚 {item['materia']} <span style='font-size: 0.8em; color:"
+              f" gray;'>({item['concurso_nome']})</span>",
+              unsafe_allow_html=True,
+          )
+          taxa_mat = item["taxa_acerto"]
+          st.progress(
+              int(taxa_mat) if taxa_mat <= 100 else 100,
+              text=f"Taxa: {taxa_mat:.1f}%",
+          )
+          txt_stats = (
+              f"**Acertos:** {item.get('certas', 0)} | **Erros:**"
+              f" {item.get('erradas', 0)} | **Total Resolvidas:**"
+              f" {item['tentativas']} | **Edital:** {item['qtd_prova']} q."
+              f" (Peso {item['peso']:.1f})"
+          )
+          st.markdown(txt_stats)
+        with cols[1]:
+          st.markdown("<br>", unsafe_allow_html=True)
+          if st.button(
+              "🗑️ Excluir Matéria",
+              key=f"del_mat_{item['concurso_nome']}_{item['materia']}",
+          ):
+            db.remover_materia_edital(
+                perfil_atual, item["concurso_nome"], item["materia"]
+            )
             st.rerun()
 
-    for msg in st.session_state.historico_copilot:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+elif menu == "📖 Questões":
+  st.title(f"📖 Resolução de Questões ({perfil_atual})")
+  cargos = ["Todos"] + cached_obter_cargos_totais(perfil_atual)
+  f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 2])
+  with f_col1:
+    cargo_filtro = st.selectbox("Cargo / Concurso", cargos)
+  with f_col2:
+    mats = ["Todas"] + cached_obter_materias(
+        perfil_atual,
+        cargo=cargo_filtro if cargo_filtro != "Todos" else None,
+    )
+    materia_filtro = st.selectbox("Matéria", mats)
+  with f_col3:
+    filtro_erros = st.selectbox(
+        "Filtrar por Erros", ["Todos", "Erros 1x", "Erros 2x", "Erros 3x+"]
+    )
+  with f_col4:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔍 Carregar Questões", use_container_width=True):
+      st.session_state.questoes_lista = cached_obter_questoes(
+          perfil_atual, cargo_filtro, materia_filtro, filtro_erros
+      )
+      st.session_state.indice_atual = 0
+      st.session_state.resposta_enviada = False
+      st.session_state.resultado_atual = None
+      st.rerun()
 
-    user_input = st.chat_input("Digite sua dúvida técnica para o Copilot...")
+  if st.session_state.questoes_lista:
+    idx = st.session_state.indice_atual
+    if idx < len(st.session_state.questoes_lista):
+      q = st.session_state.questoes_lista[idx]
+      (
+          q_id,
+          cargo_q,
+          materia_q,
+          enunciado,
+          op_a,
+          op_b,
+          op_c,
+          op_d,
+          op_e,
+          gabarito,
+          explicacao,
+          total_tentativas,
+          total_erros,
+          erros_cons,
+      ) = q
 
-    if user_input:
-        st.session_state.historico_copilot.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+      with st.container(border=True):
+        st.markdown(
+            f"**Cargo:** {cargo_q or 'Geral'} | **Matéria:** {materia_q} |"
+            f" **Questão {idx + 1} de"
+            f" {len(st.session_state.questoes_lista)}** | **Erros:**"
+            f" {total_erros or 0}"
+        )
+        if erros_cons >= 3:
+          st.error(
+              f"🚨 ALERTA CRÍTICO: Você errou esta questão {erros_cons}x"
+              " seguidas!"
+          )
+        elif erros_cons == 2:
+          st.warning(
+              "⚠️ ERRO RECORRENTE: Você errou esta questão nas últimas 2x!"
+          )
+        elif erros_cons == 1:
+          st.info("ℹ️ Você errou esta questão na última tentativa (1x).")
 
-        with st.chat_message("assistant"):
-            with st.spinner("Analisando banco de dados e gerando resposta com IA..."):
-                duvida_primeira = st.session_state.historico_copilot[0]["content"] if len(st.session_state.historico_copilot) > 0 else user_input
-                query_busca = f"{duvida_primeira} {user_input}"
+        st.markdown("### Enunciado")
+        st.info(enunciado)
 
-                match_ocor, match_man = buscar_contexto_relevante(query_busca, df_ocorrencias, df_manuais)
+        opcoes_dict = {"A": op_a, "B": op_b, "C": op_c, "D": op_d, "E": op_e}
+        opcoes_validas = {k: v for k, v in opcoes_dict.items() if v and v.strip()}
+        opcao_escolhida = st.radio(
+            "Escolha a alternativa:",
+            options=list(opcoes_validas.keys()),
+            format_func=lambda x: f"{x}) {opcoes_validas[x]}",
+            key=f"radio_resp_{q_id}",
+        )
 
-                resposta_ia = processar_resposta_gemini_chat(
-                    historico_conversa=st.session_state.historico_copilot,
-                    contexto_ocor=match_ocor,
-                    contexto_man=match_man
-                )
+        # ==============================================================================
+        # BOTÕES DE AÇÃO
+        # ==============================================================================
+        col_acao1, col_acao2, col_acao3, col_acao4 = st.columns(4)
+        with col_acao1:
+          if st.button("✅ Confirmar Resposta", use_container_width=True):
+            acertou, novo_erros_cons, total_erros_reg = db.registrar_resposta(
+                q_id, opcao_escolhida
+            )
+            st.session_state.resposta_enviada = True
+            st.session_state.resultado_atual = {
+                "acertou": acertou,
+                "gabarito": gabarito,
+                "explicacao": explicacao,
+            }
+            st.rerun()
 
-                st.markdown(resposta_ia)
-                st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
+        with col_acao2:
+          if st.button("🤖 Explicar com IA", use_container_width=True):
+            # A IA apenas gera a explicação pedagógica da questão sem julgar acerto de tentativa
+            explicacao_ia = db.explicar_questao_com_ia(
+                enunciado, opcoes_validas, gabarito
+            )
+            st.session_state.resposta_enviada = True
+            st.session_state.resultado_atual = {
+                "acertou": None,
+                "gabarito": gabarito,
+                "explicacao": explicacao_ia,
+                "ia_respondeu": True,
+            }
+            st.rerun()
 
-# ==========================================
-# ABA 3: MANUAIS & PRODUTOS
-# ==========================================
-indice_manuais = abas_navegacao.index("📚 Manuais & Produtos")
-with tabs[indice_manuais]:
-    st.subheader("📚 Base de Conhecimento de Produtos e Manuais Técnicos")
+        with col_acao3:
+          if st.button(
+              "🤖 Responder e Validar Gabarito", use_container_width=True
+          ):
+            prompt_validacao = f"""
+            Analise a questão e o gabarito cadastrado ({gabarito}). 
+            Diga se o gabarito oficial está correto com base nas alternativas.
+            Enunciado: {enunciado}
+            Opções: {opcoes_validas}
+            """
+            try:
+              resp_validacao = client.models.generate_content(
+                  model="gemini-1.5-flash",
+                  contents=prompt_validacao,
+                  config={"temperature": 0.1},
+              ).text
+            except Exception as e:
+              resp_validacao = f"Erro ao validar com IA: {str(e)}"
 
-    with st.form("form_novo_manual", clear_on_submit=True):
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            m_sistema = st.selectbox("💻 Sistema / Módulo Afetado:", LISTA_SISTEMA, key="manual_sistema")
-            m_titulo = st.text_input("Título do Manual / Especificação:", placeholder="Ex: Manual do Modo Stream Control ID")
-        with col_m2:
-            m_hardware = st.selectbox("⚙️ Hardware Relacionado:", LISTA_HARDWARE, key="manual_hw")
+            st.session_state.resposta_enviada = True
+            st.session_state.resultado_atual = {
+                "acertou": True,
+                "gabarito": gabarito,
+                "explicacao": (
+                    f"**Validação de Gabarito pela IA:**\n\n{resp_validacao}"
+                ),
+            }
+            st.rerun()
 
-        m_conteudo = st.text_area("📄 Conteúdo Completo e Instruções do Produto:", placeholder="Escreva aqui todas as instruções...", height=200)
+        with col_acao4:
+          if st.button("🗑️ Excluir Questão", use_container_width=True):
+            db.deletar_questao(q_id)
+            st.success("Questão excluída!")
+            st.session_state.questoes_lista.pop(idx)
+            if (
+                st.session_state.indice_atual
+                >= len(st.session_state.questoes_lista)
+                and st.session_state.indice_atual > 0
+            ):
+              st.session_state.indice_atual -= 1
+            st.session_state.resposta_enviada = False
+            st.rerun()
 
-        if st.form_submit_button("💾 Salvar Manual na Base de Conhecimento"):
-            if m_titulo and m_conteudo:
-                dados_manual = {
-                    "sistema_produto": m_sistema,
-                    "hardware": m_hardware,
-                    "titulo": m_titulo,
-                    "conteudo": m_conteudo,
-                }
-                if salvar_manual_db(dados_manual, "tecnico@actuar.group"):
-                    st.toast("Manual cadastrado com sucesso!", icon="🎉")
-                    st.rerun()
-            else:
-                st.error("Preencha o título e o conteúdo antes de salvar.")
+        # ==============================================================================
+        # EXIBIÇÃO DOS RESULTADOS E EXPLICAÇÕES DA IA
+        # ==============================================================================
+        if (
+            st.session_state.resposta_enviada
+            and st.session_state.resultado_atual
+        ):
+          res = st.session_state.resultado_atual
 
-    st.markdown("---")
-    if not df_manuais.empty:
-        for _, row in df_manuais.iterrows():
-            m_id = row["id"]
-            with st.expander(f"📖 [ID #{m_id}] {row.get('titulo')} ({row.get('sistema_produto')} / {row.get('hardware')})"):
-                st.markdown(f"**Conteúdo Registrado:**\n{row.get('conteudo')}")
-                if st.button(f"🗑️ Excluir Manual #{m_id}", key=f"del_manual_{m_id}"):
-                    if deletar_manual_db(m_id, "tecnico@actuar.group"):
-                        st.toast("Manual excluído!", icon="🗑️")
-                        st.rerun()
+          if res.get("ia_respondeu"):
+            st.info("🤖 Explicação detalhada da IA:")
+            st.write(res["explicacao"])
+          elif res["acertou"] is True:
+            st.success("🎉 RESPOSTA CORRETA!")
+            st.write(res["explicacao"] or "Sem explicação cadastrada.")
+          elif res["acertou"] is False:
+            st.error(f"❌ INCORRETA! Gabarito Oficial: ({res['gabarito']})")
+            st.write(res["explicacao"] or "Sem explicação cadastrada.")
+          else:
+            st.info("🤖 Análise da IA:")
+            st.write(res["explicacao"])
 
-# ==========================================
-# ABA 4: MODO TV
-# ==========================================
-indice_tv = abas_navegacao.index("📺 Modo TV")
-with tabs[indice_tv]:
-    st.subheader("📺 Painel TV - Monitoramento em Tempo Real")
-    if not df_ocorrencias.empty:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total de Ocorrências", len(df_ocorrencias))
-        m2.metric("Soluções Definitivas", len(df_ocorrencias[df_ocorrencias["status"].str.contains("Definitiva", case=False, na=False)]))
-        m3.metric("Contornos / Paliativos", len(df_ocorrencias[df_ocorrencias["status"].str.contains("Contorno", case=False, na=False)]))
-        m4.metric("Bugs / Em Análise", len(df_ocorrencias[df_ocorrencias["status"].str.contains("Bug", case=False, na=False)]))
-
-        st.markdown("---")
-        st.dataframe(df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]].head(12), use_container_width=True)
-
-# ==========================================
-# ABA 5: FAVORITOS
-# ==========================================
-indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
-with tabs[indice_fav]:
-    st.subheader("⭐ Meus Chamados Frequentes & Favoritos")
-    if st.session_state.favoritos and not df_ocorrencias.empty:
-        df_fav = df_ocorrencias[df_ocorrencias["id"].isin(st.session_state.favoritos)]
-        for _, row in df_fav.iterrows():
-            ocor_id = int(row["id"])
-            with st.expander(f"⭐ [FAVORITO #{ocor_id}] {row.get('problema')}"):
-                renderizar_solucao_estruturada(row.get("solucao"), row.get("anexo_url"))
-
-# ==========================================
-# ABA 6: CADASTRAR TRATATIVA
-# ==========================================
-indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
-with tabs[indice_cad]:
-    st.subheader("➕ Novo Mapeamento Técnico")
-    with st.form("form_novo", clear_on_submit=True):
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
-            in_status = st.selectbox("📌 Status:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
-        with col_c2:
-            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
-            in_nivel = st.selectbox("📊 Nível:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
-
-        in_prob = st.text_input("Problema (Sintoma):")
-        in_files_prob = st.file_uploader("📎 Arquivos do Problema:", accept_multiple_files=True, key="cad_prob_files")
-        in_motivo = st.text_area("Motivo (Causa Raiz):")
-
-        st.markdown("### 🛠️ Passos da Solução")
-        passos_novos_lista = []
-        for p_idx in range(1, 5):
-            col_p_txt, col_p_file = st.columns([2, 1])
-            with col_p_txt:
-                txt_p = st.text_area(f"Descrição do Passo {p_idx}:", key=f"cad_p_txt_{p_idx}")
-            with col_p_file:
-                files_p = st.file_uploader(f"Anexos Passo {p_idx}", accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
-
-            if txt_p.strip():
-                url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
-                passos_novos_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
-
-        if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
-            if in_prob and in_motivo and passos_novos_lista:
-                json_solucao = json.dumps(passos_novos_lista)
-                url_anexo_prob = upload_multiplos_arquivos(in_files_prob) if in_files_prob else None
-
-                dados = {
-                    "sistema": in_sist,
-                    "equipamento": in_hw,
-                    "problema": in_prob,
-                    "motivo": in_motivo,
-                    "solucao": json_solucao,
-                    "status": in_status,
-                    "nivel": in_nivel,
-                    "anexo_url": url_anexo_prob,
-                }
-                if salvar_ocorrencia_db(dados, "tecnico@actuar.group"):
-                    st.toast("Tratativa salva com sucesso!", icon="🎉")
-                    st.rerun()
-            else:
-                st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
-
-# ==========================================
-# ABA 7: IMPORTAR & EXPORTAR TXT
-# ==========================================
-indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
-with tabs[indice_export]:
-    st.subheader("📥 Importar & Exportar Base Completa em .TXT")
-
-    with st.form("form_import_txt"):
-        arquivo_txt = st.file_uploader("Selecione o arquivo .TXT:", type=["txt"])
-        if st.form_submit_button("🚀 Processar Importação"):
-            if arquivo_txt is not None:
-                qtd = processar_importacao_txt(arquivo_txt.getvalue(), "tecnico@actuar.group")
-                if qtd > 0:
-                    st.success(f"{qtd} ocorrências foram importadas com sucesso!")
-                    time.sleep(1)
-                    st.rerun()
-
-    st.markdown("---")
-    conteudo_txt = "=" * 70 + "\nACTUAR.GROUP - EXPORTAÇÃO DA BASE DE CONHECIMENTO\n" + "=" * 70 + "\n\n"
-
-    if not df_manuais.empty:
-        conteudo_txt += "--- SEÇÃO 1: MANUAIS ---\n"
-        for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
-
-    if not df_ocorrencias.empty:
-        conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
-        for _, row in df_ocorrencias.iterrows():
-            conteudo_txt += f"Erro: {row.get('problema')}\nSistema: {row.get('sistema')}\nSolução: {row.get('solucao')}\n" + "-" * 50 + "\n"
-
-    st.download_button(
-        label="📥 Baixar Base Unificada Completa (TXT)",
-        data=conteudo_txt,
-        file_name="base_conhecimento_actuar.txt",
-        mime="text/plain",
+          if st.button("Próxima Questão ➡️"):
+            st.session_state.indice_atual += 1
+            st.session_state.resposta_enviada = False
+            st.session_state.resultado_atual = None
+            st.rerun()
+    else:
+      st.info("Você concluiu todas as questões carregadas neste caderno!")
+  else:
+    st.info(
+        "Utilize os filtros acima e clique em 'Carregar Questões' para iniciar."
     )
 
-# ==========================================
-# ABA 8: AUDIT LOG
-# ==========================================
-indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
-with tabs[indice_audit]:
-    st.subheader("📜 Histórico de Auditoria (Audit Log)")
+elif menu == "➕ Cadastrar":
+  st.title(f"➕ Nova Questão & Automação Inteligente ({perfil_atual})")
+
+  with st.expander("📝 Colar Texto Completo da Questão", expanded=True):
+    texto_bruto_input = st.text_area(
+        "Cole aqui o texto inteiro da questão:", height=150
+    )
+
+    if st.button(
+        "⚡ Separar Automaticamente (Instantâneo / Sem Erros)",
+        use_container_width=True,
+    ):
+      if texto_bruto_input.strip():
+        dados_separados = db.processar_texto_localmente(texto_bruto_input)
+        st.session_state.form_enunciado = dados_separados["enunciado"]
+        st.session_state.form_op_a = dados_separados["op_a"]
+        st.session_state.form_op_b = dados_separados["op_b"]
+        st.session_state.form_op_c = dados_separados["op_c"]
+        st.session_state.form_op_d = dados_separados["op_d"]
+        st.session_state.form_op_e = dados_separados["op_e"]
+        st.session_state.form_gabarito = dados_separados["gabarito"]
+        st.session_state.form_explicacao = dados_separados["explicacao"]
+        st.success("Texto separado com sucesso localmente!")
+        st.rerun()
+      else:
+        st.warning("Cole o texto da questão primeiro!")
+
+  with st.expander("🖼️ Leitura por Imagem (Print/Foto da Questão)"):
+    imagem_file = st.file_uploader(
+        "Selecione um arquivo de imagem", type=["png", "jpg", "jpeg", "webp"]
+    )
+    if imagem_file is not None and st.button("Processar Imagem com IA"):
+      with open("temp_img.png", "wb") as f:
+        f.write(imagem_file.getbuffer())
+      resposta_ia = db.ler_questao_por_imagem("temp_img.png")
+      if resposta_ia.startswith("Erro"):
+        st.error(resposta_ia)
+      else:
+        texto_limpo_img = (
+            resposta_ia.replace("**", "").replace("*", "").replace("`", "")
+        )
+
+        def extrair_tag_img(tag, texto):
+          pattern = rf"(?:^|\n)\s*{tag}\s*:[ \t]*(.*?)(?=\n\s*[A-Z_]{3,}\s*:|\Z)"
+          match = re.search(pattern, texto, re.DOTALL | re.IGNORECASE)
+          return match.group(1).strip() if match else ""
+
+        st.session_state.form_enunciado = extrair_tag_img(
+            "ENUNCIADO", texto_limpo_img
+        )
+        st.session_state.form_op_a = extrair_tag_img(
+            "ALTERNATIVA_A", texto_limpo_img
+        )
+        st.session_state.form_op_b = extrair_tag_img(
+            "ALTERNATIVA_B", texto_limpo_img
+        )
+        st.session_state.form_op_c = extrair_tag_img(
+            "ALTERNATIVA_C", texto_limpo_img
+        )
+        st.session_state.form_op_d = extrair_tag_img(
+            "ALTERNATIVA_D", texto_limpo_img
+        )
+        st.session_state.form_op_e = extrair_tag_img(
+            "ALTERNATIVA_E", texto_limpo_img
+        )
+        gab_img = extrair_tag_img("GABARITO", texto_limpo_img).upper()
+        if gab_img and gab_img[0] in ["A", "B", "C", "D", "E"]:
+          st.session_state.form_gabarito = gab_img[0]
+        st.session_state.form_explicacao = extrair_tag_img(
+            "EXPLICACAO", texto_limpo_img
+        )
+        st.success("Imagem lida com sucesso!")
+        st.rerun()
+
+  cargos_iniciais = db.obter_cargos_totais(perfil_atual)
+  if not cargos_iniciais:
+    cargos_iniciais = ["Cargo / Concurso"]
+
+  st.markdown("---")
+  st.subheader("📝 Formulário de Revisão e Cadastro")
+  cad_cargo = st.selectbox(
+      "Cargo / Concurso", cargos_iniciais, key="cad_cargo_select"
+  )
+  materias_cargo = cached_obter_materias(perfil_atual, cargo=cad_cargo)
+  if not materias_cargo:
+    materias_cargo = ["Geral"]
+
+  with st.form("form_cadastrar_questao"):
+    cad_materia = st.selectbox("Matéria", options=materias_cargo)
+    cad_enunciado = st.text_area(
+        "Enunciado da Questão",
+        value=st.session_state.form_enunciado,
+        height=120,
+    )
+
+    c_op1, c_op2 = st.columns(2)
+    with c_op1:
+      op_a = st.text_input("Opção A", value=st.session_state.form_op_a)
+      op_b = st.text_input("Opção B", value=st.session_state.form_op_b)
+      op_c = st.text_input("Opção C", value=st.session_state.form_op_c)
+    with c_op2:
+      op_d = st.text_input("Opção D", value=st.session_state.form_op_d)
+      op_e = st.text_input("Opção E", value=st.session_state.form_op_e)
+
+    opcoes_gabarito_possiveis = ["A", "B", "C", "D", "E"]
     try:
-        if supabase and st.session_state.active_key:
-            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-            df_logs = pd.DataFrame(res_logs.data)
-            if not df_logs.empty:
-                st.dataframe(df_logs[["created_at", "usuario_email", "acao", "detalhes"]], use_container_width=True)
-            else:
-                st.info("Nenhum registro de log encontrado.")
-    except Exception as e:
-        st.error(f"Erro ao carregar log: {e}")
+      idx_gab = opcoes_gabarito_possiveis.index(st.session_state.form_gabarito)
+    except ValueError:
+      idx_gab = 0
+
+    cad_gabarito = st.selectbox(
+        "Gabarito Oficial", opcoes_gabarito_possiveis, index=idx_gab
+    )
+    cad_explicacao = st.text_area(
+        "Explicação / Comentário",
+        value=st.session_state.form_explicacao,
+        height=100,
+    )
+
+    if st.form_submit_button("💾 Salvar Questão Definitivamente"):
+      if cad_enunciado.strip() and op_a.strip() and op_b.strip():
+        db.adicionar_questao(
+            perfil_atual,
+            cad_cargo,
+            cad_materia,
+            cad_enunciado,
+            op_a,
+            op_b,
+            op_c,
+            op_d,
+            op_e,
+            cad_gabarito,
+            cad_explicacao,
+        )
+        st.success("Questão cadastrada com sucesso no banco de dados!")
+      else:
+        st.warning("Preencha o Enunciado e as Opções A e B!")
+
+elif menu == "💾 Backup":
+  st.title(f"💾 Gestão do Banco de Dados ({perfil_atual})")
+  st.write(
+      "Seus dados estão seguros na nuvem (Supabase). Utilize o painel do Supabase"
+      " para gerenciar backups diretos do PostgreSQL."
+  )
