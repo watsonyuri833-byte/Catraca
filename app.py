@@ -302,11 +302,26 @@ def renderizar_conteudo_estruturado(conteudo_data, anexo_global=None):
             num_passo = item.get("passo", idx + 1)
             texto_passo = item.get("texto", "")
             url_passo = item.get("anexo", None)
+            erro_passo = item.get("erro", "")
+            link_passo = item.get("link_url", "")
+            link_titulo_passo = item.get("link_titulo", "")
 
             st.markdown(f"**{num_passo}º** {texto_passo}")
+            
+            # Link específico do passo, se houver
+            if link_passo:
+                renderizar_bloco_links(link_passo, link_titulo_passo)
+
+            # Anexos do passo, se houver
             if url_passo:
                 with st.expander(f"📷 Anexos do Passo {num_passo}", expanded=False):
                     renderizar_bloco_imagens(url_passo)
+
+            # Subpasta de Erro do passo, se houver
+            if erro_passo and str(erro_passo).strip() != "":
+                with st.expander(f"⚠️ Erros / Possíveis Falhas (Passo {num_passo})", expanded=False):
+                    st.markdown(f"{erro_passo}")
+
             st.markdown("")
     else:
         st.markdown(f"{conteudo_data}")
@@ -662,10 +677,10 @@ with tabs[indice_onboarding]:
                             with st.container(border=True):
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╰─ 🔹 **{row_item.get('titulo')}**")
                                 
-                                # Renderiza conteúdo estruturado (passos ou texto)
+                                # Renderiza conteúdo estruturado (passos, anexos, erros e links por passo)
                                 renderizar_conteudo_estruturado(row_item.get('conteudo'), row_item.get('anexo_url'))
                                 
-                                # Renderiza links externos e vídeos se existirem
+                                # Renderiza links externos e vídeos gerais se existirem
                                 renderizar_bloco_links(row_item.get('link_url'), row_item.get('link_titulo'))
                                 
                                 if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
@@ -682,26 +697,42 @@ with tabs[indice_onboarding]:
             titulo_no = st.text_input("Título do Tópico / Erro:", placeholder="Ex: Actuar Acesso / Configuração de IP...")
             
             st.markdown("---")
-            st.markdown("🛠️ **Passos do Procedimento (Passo a Passo):**")
+            st.markdown("🛠️ **Passos do Procedimento (Passo a Passo com Erros e Links):**")
             passos_mapa_lista = []
             for p_idx in range(1, 6):
+                st.markdown(f"**Passo {p_idx}**")
                 col_p_txt, col_p_file = st.columns([2, 1])
                 with col_p_txt:
                     txt_p = st.text_area(f"Descrição do Passo {p_idx}:", key=f"map_p_txt_{p_idx}", height=70)
                 with col_p_file:
                     files_p = st.file_uploader(f"Anexos Passo {p_idx}", accept_multiple_files=True, key=f"map_p_file_{p_idx}")
 
+                # Campos opcionais ao lado direito da descrição: Link e Erros
+                col_l_passo, col_err_passo = st.columns(2)
+                with col_l_passo:
+                    link_url_p = st.text_input(f"Link do Passo {p_idx} (Opcional):", placeholder="https://...", key=f"map_p_link_{p_idx}")
+                    link_tit_p = st.text_input(f"Título do Link {p_idx}:", placeholder="Ex: Vídeo do Passo", key=f"map_p_link_tit_{p_idx}")
+                with col_err_passo:
+                    txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", placeholder="Descreva o erro ou como resolver se falhar aqui...", key=f"map_p_err_{p_idx}", height=70)
+
                 if txt_p.strip():
                     url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
-                    passos_mapa_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
+                    passos_mapa_lista.append({
+                        "passo": p_idx,
+                        "texto": txt_p.strip(),
+                        "anexo": url_anexo_p,
+                        "erro": txt_err_p.strip() if txt_err_p else "",
+                        "link_url": link_url_p.strip() if link_url_p else "",
+                        "link_titulo": link_tit_p.strip() if link_tit_p else ""
+                    })
+                st.markdown("---")
 
-            st.markdown("---")
-            st.markdown("🌐 **Vídeo ou Link Externo de Apoio (Opcional):**")
+            st.markdown("🌐 **Vídeo ou Link Externo Geral de Apoio (Opcional):**")
             col_l1, col_l2 = st.columns([2, 1])
             with col_l1:
-                link_url_in = st.text_input("URL do Link / Vídeo:", placeholder="https://youtube.com/watch?v=... ou link da wiki")
+                link_url_in = st.text_input("URL do Link / Vídeo Geral:", placeholder="https://youtube.com/watch?v=... ou link da wiki")
             with col_l2:
-                link_titulo_in = st.text_input("Nome/Título do Link:", placeholder="Ex: Vídeo Explicativo YouTube")
+                link_titulo_in = st.text_input("Nome/Título do Link Geral:", placeholder="Ex: Vídeo Explicativo YouTube")
 
             arquivos_globais_no = st.file_uploader("📎 Imagens / Evidências Gerais do Tópico (Opcional):", accept_multiple_files=True, key="map_files_global")
             
@@ -830,15 +861,31 @@ with tabs[indice_cad]:
         st.markdown("### 🛠️ Passos da Solução")
         passos_novos_lista = []
         for p_idx in range(1, 5):
+            st.markdown(f"**Passo {p_idx}**")
             col_p_txt, col_p_file = st.columns([2, 1])
             with col_p_txt:
                 txt_p = st.text_area(f"Descrição do Passo {p_idx}:", key=f"cad_p_txt_{p_idx}")
             with col_p_file:
                 files_p = st.file_uploader(f"Anexos Passo {p_idx}", accept_multiple_files=True, key=f"cad_p_file_{p_idx}")
 
+            col_l_passo, col_err_passo = st.columns(2)
+            with col_l_passo:
+                link_url_p = st.text_input(f"Link do Passo {p_idx} (Opcional):", placeholder="https://...", key=f"cad_p_link_{p_idx}")
+                link_tit_p = st.text_input(f"Título do Link {p_idx}:", placeholder="Ex: Vídeo do Passo", key=f"cad_p_link_tit_{p_idx}")
+            with col_err_passo:
+                txt_err_p = st.text_area(f"⚠️ Possíveis Erros / Falhas do Passo {p_idx}:", placeholder="Descreva o erro ou solução se falhar aqui...", key=f"cad_p_err_{p_idx}", height=70)
+
             if txt_p.strip():
                 url_anexo_p = upload_multiplos_arquivos(files_p) if files_p else None
-                passos_novos_lista.append({"passo": p_idx, "texto": txt_p.strip(), "anexo": url_anexo_p})
+                passos_novos_lista.append({
+                    "passo": p_idx,
+                    "texto": txt_p.strip(),
+                    "anexo": url_anexo_p,
+                    "erro": txt_err_p.strip() if txt_err_p else "",
+                    "link_url": link_url_p.strip() if link_url_p else "",
+                    "link_titulo": link_tit_p.strip() if link_tit_p else ""
+                })
+            st.markdown("---")
 
         if st.form_submit_button("💾 Salvar Mapeamento no Banco"):
             if in_sist and in_prob and in_motivo and passos_novos_lista:
