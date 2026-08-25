@@ -183,16 +183,6 @@ def buscar_manuais_db():
     except Exception:
         return pd.DataFrame()
 
-def buscar_onboarding_db():
-    if not supabase or not st.session_state.active_key:
-        return pd.DataFrame()
-    try:
-        res = supabase.table("onboarding_arvore").select("*").order("id", desc=True).execute()
-        return pd.DataFrame(res.data)
-    except Exception:
-        # Se a tabela não existir, retorna dataframe vazio sem quebrar
-        return pd.DataFrame()
-
 def registrar_log(usuario_email, acao, detalhes):
     if not supabase:
         return
@@ -255,102 +245,6 @@ def deletar_manual_db(manual_id, usuario_email):
     except Exception as e:
         st.error(f"Erro ao excluir manual: {e}")
         return False
-
-def salvar_onboarding_db(dados, usuario_email):
-    try:
-        dados_limpos = limpar_dados_para_json(dados)
-        supabase.table("onboarding_arvore").insert(dados_limpos).execute()
-        registrar_log(usuario_email, "ONBOARDING_CRIADO", f"Cadastrou item de onboarding: {dados.get('categoria')} -> {dados.get('subtopico')}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar item de onboarding no Supabase. Verifique se a tabela 'onboarding_arvore' existe. Detalhe: {e}")
-        return False
-
-def deletar_onboarding_db(item_id, usuario_email):
-    try:
-        supabase.table("onboarding_arvore").delete().eq("id", item_id).execute()
-        registrar_log(usuario_email, "ONBOARDING_EXCLUIDO", f"Excluiu o item ID #{item_id}")
-        return True
-    except Exception as e:
-        st.error(f"Erro ao excluir item: {e}")
-        return False
-
-def processar_importacao_txt(file_bytes, usuario_email):
-    try:
-        try:
-            texto = file_bytes.decode("utf-8")
-        except Exception:
-            texto = file_bytes.decode("latin-1")
-
-        blocos = texto.split("Erro:")
-        importadas = 0
-
-        for bloco in blocos:
-            if not bloco.strip():
-                continue
-
-            linhas = bloco.strip().split("\n")
-            problema = linhas[0].strip()
-
-            sistema = "Não se aplica / Geral"
-            motivo_partes = []
-            solucao_texto = ""
-
-            for linha in linhas[1:]:
-                l = linha.strip()
-                if not l:
-                    continue
-
-                if l.startswith("Sistema:"):
-                    l_lower = l.lower()
-                    if "[x] ambos" in l_lower:
-                        sistema = "Outro Sistema"
-                    elif "[x] legado" in l_lower:
-                        sistema = "Legado(Acesso)"
-                    elif "[x] the new" in l_lower or "[x] edge" in l_lower:
-                        sistema = "The new(Edge)"
-                elif (
-                    l.startswith("Onde ocorre:")
-                    or l.startswith("Como ocorre:")
-                    or l.startswith("Causa")
-                ):
-                    motivo_partes.append(l)
-                elif l.startswith("Solução:"):
-                    s_limpa = l.replace("Solução:", "").strip()
-                    if s_limpa.startswith("[") and s_limpa.endswith("]"):
-                        s_limpa = s_limpa[1:-1].strip()
-                    solucao_texto = s_limpa
-                elif not l.startswith("Possíveis Causas"):
-                    motivo_partes.append(l)
-
-            if problema:
-                motivo_final = " | ".join(motivo_partes) if motivo_partes else "Não informado"
-                passos_padrao = [{
-                    "passo": 1,
-                    "texto": solucao_texto if solucao_texto else "Não informada",
-                    "anexo": None,
-                }]
-
-                dados = {
-                    "sistema": sistema if sistema in LISTA_SISTEMA else "Outro Sistema",
-                    "equipamento": "Indiferente",
-                    "problema": problema,
-                    "motivo": motivo_final,
-                    "solucao": json.dumps(passos_padrao),
-                    "status": "🟢 Solução Definitiva",
-                    "nivel": "N1 - Fácil / Rápido",
-                    "anexo_url": None,
-                }
-
-                dados_limpos = limpar_dados_para_json(dados)
-                supabase.table("ocorrencias").insert(dados_limpos).execute()
-                importadas += 1
-
-        if importadas > 0:
-            registrar_log(usuario_email, "IMPORTOU", f"Importou {importadas} ocorrências via TXT.")
-        return importadas
-    except Exception as e:
-        return 0
 
 def upload_arquivo_unico(file):
     if not file:
@@ -451,7 +345,7 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
 
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-3.6-flash',
+            model='gemini-2.5-flash',
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -535,7 +429,6 @@ st.markdown("---")
 
 df_ocorrencias = buscar_ocorrencias_db()
 df_manuais = buscar_manuais_db()
-df_onboarding = buscar_onboarding_db()
 
 abas_navegacao = [
     "📋 Diagnósticos",
@@ -879,49 +772,35 @@ with tabs[indice_copilot]:
 # ==========================================
 indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Organograma)")
 with tabs[indice_onboarding]:
-    st.subheader("🌳 Organograma de Onboarding e Instalação (Passo a Passo)")
-    st.caption("Navegue pelos módulos estruturados em árvore ou cadastre novos fluxos e subtópicos com imagens e instruções detalhadas.")
+    st.subheader("🌳 Organograma e Mapa Mental de Onboarding")
+    st.caption("Navegue pelos módulos estruturados em árvore hierárquica ou cadastre novos fluxos e subtópicos para o treinamento técnico.")
 
     tab_obs_ver, tab_obs_cad = st.tabs(["👁️ Visualizar Organograma", "➕ Cadastrar / Gerenciar Tópicos"])
 
     with tab_obs_ver:
-        if df_onboarding.empty:
-            st.info("Nenhum roteiro de onboarding cadastrado ainda. Utilize a aba 'Cadastrar / Gerenciar Tópicos' para criar o primeiro fluxo (Ex: Instalação de Legado e AD).")
+        if df_manuais.empty:
+            st.info("Nenhum roteiro de onboarding cadastrado ainda. Utilize a aba 'Cadastrar / Gerenciar Tópicos' para criar o primeiro fluxo.")
         else:
-            # Organizar em Árvore (Categoria -> Subtópico)
-            categorias_unicas = df_onboarding["categoria"].dropna().unique()
+            categorias_unicas = df_manuais["sistema_produto"].dropna().unique()
             
             for cat in sorted(categorias_unicas):
-                with st.expander(f"📁 **Categoria / Módulo Principal:** {cat}", expanded=True):
-                    df_cat = df_onboarding[df_onboarding["categoria"] == cat]
+                with st.expander(f"📁 **Tema Central / Módulo:** {cat}", expanded=True):
+                    df_cat = df_manuais[df_manuais["sistema_produto"] == cat]
                     
                     for _, row_item in df_cat.iterrows():
                         item_id = row_item.get("id")
-                        subtopico = row_item.get("subtopico")
-                        descricao = row_item.get("descricao")
-                        anexos = row_item.get("anexo_url")
+                        subtopico = row_item.get("titulo")
+                        descricao = row_item.get("conteudo")
                         
-                        st.markdown(f"#### 🌿 **Subtópico:** {subtopico}")
-                        st.markdown(f"**Instruções / Passo a Passo:**\n{descricao}")
-                        
-                        # Renderizar imagens/arquivos se houver
-                        if anexos and pd.notna(anexos) and str(anexos).strip() != "":
-                            lista_urls = [u.strip() for u in str(anexos).split(",") if u.strip()]
-                            for idx_img, url_img in enumerate(lista_urls):
-                                nome_arq = url_img.split("/")[-1].split("?")[0]
-                                if url_img.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                                    try:
-                                        st.image(url_img, width=500, caption=f"Evidência / Print {idx_img + 1} - {subtopico}")
-                                    except Exception:
-                                        st.markdown(f"📥 Baixar Imagem: [**{nome_arq}**]({url_img})")
-                                else:
-                                    st.markdown(f"📄 Arquivo: [**{nome_arq}**]({url_img})")
-                        
-                        # Botão rápido para excluir item do organograma se necessário
-                        if st.button(f"🗑️ Excluir Subtópico #{item_id}", key=f"del_onb_{item_id}"):
-                            if deletar_onboarding_db(item_id, "tecnico@actuar.group"):
-                                st.toast("Subtópico excluído com sucesso!", icon="🗑️")
-                                st.rerun()
+                        col_tree_l, col_tree_r = st.columns([5, 1])
+                        with col_tree_l:
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;┗━━ 🌿 **{subtopico}**")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;*Instruções:* {descricao}")
+                        with col_tree_r:
+                            if st.button("🗑️ Excluir", key=f"del_onb_{item_id}"):
+                                if deletar_manual_db(item_id, "tecnico@actuar.group"):
+                                    st.toast("Tópico excluído com sucesso!", icon="🗑️")
+                                    st.rerun()
                         
                         st.markdown("---")
 
@@ -930,30 +809,33 @@ with tabs[indice_onboarding]:
         with st.form("form_novo_onb_arvore", clear_on_submit=True):
             col_o1, col_o2 = st.columns(2)
             with col_o1:
-                cat_input = st.text_input("Categoria Principal (Ex: Instalação de Legado e AD, Configuração de Rede, Catracas):", placeholder="Ex: Instalação de Legado e AD")
+                cat_input = st.selectbox("Tema Central / Módulo Principal (Ex: Gestão e Financiamento do SUS):", LISTA_SISTEMA)
             with col_o2:
-                sub_input = st.text_input("Subtópico / Passo (Ex: Passo 1 - Configurando IP Fixo, Instalação do Banco SQL):", placeholder="Ex: Passo 1 - Criação de Banco e Conexão")
+                sub_input = st.text_input("Subtópico / Ramo (Ex: Planos de Carreiras - PCCV):", placeholder="Ex: Financiamento da Saúde")
 
-            desc_input = st.text_area("📄 Descrição detalhada do passo a passo:", placeholder="Descreva detalhadamente o que o técnico deve fazer...", height=150)
+            desc_input = st.text_area("📄 Descrição detalhada do conteúdo ou passo a passo:", placeholder="Descreva os marcos normativos, diretrizes ou orientações...", height=150)
             
             files_input = st.file_uploader("📷 Colar / Enviar Imagens ou Prints de Apoio:", accept_multiple_files=True, key="files_onb_tree")
 
             if st.form_submit_button("💾 Salvar no Organograma de Onboarding"):
                 if cat_input and sub_input and desc_input:
                     url_anexos_onb = upload_multiplos_arquivos(files_input) if files_input else None
+                    conteudo_final = f"{desc_input.strip()}"
+                    if url_anexos_onb:
+                        conteudo_final += f"\n\n**Anexos/Imagens:** {url_anexos_onb}"
                     
                     dados_onb = {
-                        "categoria": cat_input.strip(),
-                        "subtopico": sub_input.strip(),
-                        "descricao": desc_input.strip(),
-                        "anexo_url": url_anexos_onb
+                        "sistema_produto": cat_input,
+                        "hardware": "Indiferente",
+                        "titulo": sub_input.strip(),
+                        "conteudo": conteudo_final
                     }
                     
-                    if salvar_onboarding_db(dados_onb, "tecnico@actuar.group"):
+                    if salvar_manual_db(dados_onb, "tecnico@actuar.group"):
                         st.toast("Item de onboarding adicionado com sucesso na árvore!", icon="🎉")
                         st.rerun()
                 else:
-                    st.error("Preencha a Categoria, o Subtópico e a Descrição.")
+                    st.error("Preencha o Tema Central, o Subtópico e a Descrição.")
 
 # ==========================================
 # ABA 4: MANUAIS & PRODUTOS
