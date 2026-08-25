@@ -224,52 +224,30 @@ def upload_anexo(file):
         st.error(f"Erro no upload da imagem: {e}")
         return None
 
-EMAILS_GESTORES = ["watson@actuar.group"]
-
-def obter_perfil_usuario(user_id, email):
-    if email.lower() in [e.lower() for e in EMAILS_GESTORES]:
-        role_atribuida = "Admin"
-    else:
-        role_atribuida = "Analista"
-        
-    res = supabase.table("perfis").select("role").eq("user_id", user_id).execute()
-    if res.data:
-        if res.data[0]["role"] != role_atribuida and role_atribuida == "Admin":
-            supabase.table("perfis").update({"role": "Admin"}).eq("user_id", user_id).execute()
-        return role_atribuida
-    
-    supabase.table("perfis").insert({
-        "user_id": user_id, 
-        "email": email, 
-        "role": role_atribuida
-    }).execute()
-    
-    return role_atribuida
-
 def extrair_primeiro_nome(email):
-    """Extrai e formata o primeiro nome a partir do e-mail (ex: watson.cruz@... -> Watson)"""
+    """Extrai e formata o primeiro nome a partir do e-mail (ex: usuario.teste@... -> Usuario)"""
     if not email or "@" not in email:
         return "Usuário"
     nome_base = email.split("@")[0].split(".")[0]
     return nome_base.capitalize()
 
 # ==========================================
-# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE
+# 3. CONTROLE DE SESSÃO E LOGIN PERSISTENTE (ACESSO TOTAL)
 # ==========================================
 if "user" not in st.session_state or st.session_state.user is None:
     session = supabase.auth.get_session()
     if session:
         st.session_state.user = session.user
-        st.session_state.user_role = obter_perfil_usuario(session.user.id, session.user.email)
+        st.session_state.user_role = "Total" # Todos possuem acesso total
     else:
         st.session_state.user = None
-        st.session_state.user_role = "Analista"
+        st.session_state.user_role = "Total"
 
 def fazer_login(email, password):
     try:
         response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         st.session_state.user = response.user
-        st.session_state.user_role = obter_perfil_usuario(response.user.id, response.user.email)
+        st.session_state.user_role = "Total"
         st.toast("Login realizado com sucesso!", icon="✅")
         st.rerun()
     except Exception as e:
@@ -278,7 +256,7 @@ def fazer_login(email, password):
 def fazer_logout():
     supabase.auth.sign_out()
     st.session_state.user = None
-    st.session_state.user_role = "Analista"
+    st.session_state.user_role = "Total"
     st.rerun()
 
 # --- TELA DE LOGIN ---
@@ -323,7 +301,7 @@ with col_logo:
     st.title("actuar.group")
 
 with col_user:
-    role_badge = f"🛡️ **{st.session_state.user_role}**"
+    role_badge = "🛡️ **Acesso Total**"
     primeiro_nome_logado = extrair_primeiro_nome(st.session_state.user.email)
     st.write(f"👤 Olá, **{primeiro_nome_logado}** | {role_badge}")
     if st.button("🚪 Sair"):
@@ -336,21 +314,23 @@ try:
 except Exception:
     df_ocorrencias = pd.DataFrame()
 
-# Garante a coluna de autor caso o banco seja antigo e não tenha a coluna criada
 for col in ["sistema", "equipamento", "problema", "motivo", "solucao", "status", "nivel", "tempo_estimado", "votos_pos", "votos_neg", "anexo_url", "autor_email"]:
     if not df_ocorrencias.empty and col not in df_ocorrencias.columns:
         df_ocorrencias[col] = None
 
-# Configuração dinâmica das abas com base na permissão de Admin
-abas_navegacao = ["📋 Diagnósticos", "➕ Cadastrar Tratativa", "📊 Dashboard Executivo"]
-if st.session_state.user_role == "Admin":
-    abas_navegacao.append("🤖 Assistente IA")
-    abas_navegacao.append("📜 Audit Log (Gestão)")
+# Abas liberadas para todos os usuários
+abas_navegacao = [
+    "📋 Diagnósticos", 
+    "➕ Cadastrar Tratativa", 
+    "📊 Dashboard Executivo", 
+    "🤖 Assistente IA", 
+    "📜 Audit Log (Gestão)"
+]
 
 tabs = st.tabs(abas_navegacao)
 
 # ==========================================
-# ABA 1: CONSULTA + EDIÇÃO (ADMIN) + AVALIAÇÃO + EXCLUSÃO
+# ABA 1: CONSULTA + EDIÇÃO + AVALIAÇÃO + EXCLUSÃO (TODOS)
 # ==========================================
 with tabs[0]:
     st.subheader("🔍 Base Mapeada de Ocorrências")
@@ -391,11 +371,9 @@ with tabs[0]:
             tempo = row.get('tempo_estimado', '-')
             anexo = row.get('anexo_url', None)
             
-            # Identificação do Autor (Primeiro Nome)
             email_autor = row.get('autor_email', None)
             nome_autor = extrair_primeiro_nome(email_autor) if email_autor else "Equipe Técnica"
             
-            # Cabeçalho customizado com o nome e um avatar em ícone
             titulo_card = f"[{status}] {sist} + {hw} — {prob}  |  👤 Relatado por: {nome_autor}"
             
             with st.expander(titulo_card):
@@ -442,67 +420,66 @@ with tabs[0]:
                             st.toast("Anotação adicionada!", icon="💬")
                             st.rerun()
 
-                # BLOCO DE EXCLUSÃO E EDIÇÃO (EXCLUSIVO ADMIN)
-                if st.session_state.user_role == "Admin":
-                    st.markdown("---")
-                    
-                    with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
-                        with st.form(key=f"form_edit_{ocor_id}"):
-                            edit_col1, edit_col2 = st.columns(2)
-                            
-                            idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
-                            idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
-                            
-                            lista_status = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
-                            idx_status = lista_status.index(status) if status in lista_status else 0
-                            
-                            lista_niveis = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
-                            idx_nivel = [i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])]
-                            idx_nivel = idx_nivel[0] if idx_nivel else 0
-                            
-                            lista_tempos = ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"]
-                            idx_tempo = lista_tempos.index(tempo) if tempo in lista_tempos else 0
+                # BLOCO DE EDIÇÃO E EXCLUSÃO (LIBERADO PARA TODOS)
+                st.markdown("---")
+                
+                with st.expander(f"✏️ Editar Relato Finalizado #{ocor_id}"):
+                    with st.form(key=f"form_edit_{ocor_id}"):
+                        edit_col1, edit_col2 = st.columns(2)
+                        
+                        idx_sist = LISTA_SISTEMA.index(sist) if sist in LISTA_SISTEMA else 0
+                        idx_hw = LISTA_HARDWARE.index(hw) if hw in LISTA_HARDWARE else 0
+                        
+                        lista_status = ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"]
+                        idx_status = lista_status.index(status) if status in lista_status else 0
+                        
+                        lista_niveis = ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"]
+                        idx_nivel = [i for i, n in enumerate(lista_niveis) if n.startswith(str(nivel)[:2])]
+                        idx_nivel = idx_nivel[0] if idx_nivel else 0
+                        
+                        lista_tempos = ["15 minutos", "30 minutos", "1 hora", "2+ horas", "Requer troca/envio"]
+                        idx_tempo = lista_tempos.index(tempo) if tempo in lista_tempos else 0
 
-                            with edit_col1:
-                                edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
-                                edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
-                                edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
-                            with edit_col2:
-                                edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
-                                edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
-                                edit_anexo = st.file_uploader("📷 Substituir Foto/Anexo (Opcional):", type=["png", "jpg", "jpeg"], key=f"ea_{ocor_id}")
+                        with edit_col1:
+                            edit_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, index=idx_hw, key=f"eh_{ocor_id}")
+                            edit_status = st.selectbox("📌 Status:", lista_status, index=idx_status, key=f"est_{ocor_id}")
+                            edit_nivel = st.selectbox("📊 Nível:", lista_niveis, index=idx_nivel, key=f"en_{ocor_id}")
+                        with edit_col2:
+                            edit_sist = st.selectbox("💻 Sistema:", LISTA_SISTEMA, index=idx_sist, key=f"es_{ocor_id}")
+                            edit_tempo = st.selectbox("⏱️ Tempo Estimado:", lista_tempos, index=idx_tempo, key=f"et_{ocor_id}")
+                            edit_anexo = st.file_uploader("📷 Substituir Foto/Anexo (Opcional):", type=["png", "jpg", "jpeg"], key=f"ea_{ocor_id}")
 
-                            edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
-                            edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
-                            edit_solucao = st.text_area("Solução Passo a Passo:", value=row.get('solucao', ''), key=f"eso_{ocor_id}")
+                        edit_prob = st.text_input("Problema (Sintoma):", value=prob, key=f"ep_{ocor_id}")
+                        edit_motivo = st.text_area("Motivo (Causa Raiz):", value=row.get('motivo', ''), key=f"em_{ocor_id}")
+                        edit_solucao = st.text_area("Solução Passo a Passo:", value=row.get('solucao', ''), key=f"eso_{ocor_id}")
 
-                            if st.form_submit_button("💾 Salvar Alterações"):
-                                nova_url_anexo = upload_anexo(edit_anexo) if edit_anexo else anexo
-                                
-                                dados_novos = {
-                                    "sistema": edit_sist,
-                                    "equipamento": edit_hw,
-                                    "problema": edit_prob,
-                                    "motivo": edit_motivo,
-                                    "solucao": edit_solucao,
-                                    "status": edit_status,
-                                    "nivel": edit_nivel,
-                                    "tempo_estimado": edit_tempo,
-                                    "anexo_url": nova_url_anexo
-                                }
-                                
-                                if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
-                                    st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
-                                    st.rerun()
+                        if st.form_submit_button("💾 Salvar Alterações"):
+                            nova_url_anexo = upload_anexo(edit_anexo) if edit_anexo else anexo
+                            
+                            dados_novos = {
+                                "sistema": edit_sist,
+                                "equipamento": edit_hw,
+                                "problema": edit_prob,
+                                "motivo": edit_motivo,
+                                "solucao": edit_solucao,
+                                "status": edit_status,
+                                "nivel": edit_nivel,
+                                "tempo_estimado": edit_tempo,
+                                "anexo_url": nova_url_anexo
+                            }
+                            
+                            if atualizar_ocorrencia_db(ocor_id, dados_novos, st.session_state.user.email):
+                                st.toast(f"Tratativa #{ocor_id} atualizada com sucesso!", icon="✅")
+                                st.rerun()
 
-                    if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
-                        sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
-                        if sucesso:
-                            st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
-                            st.rerun()
+                if st.button(f"🗑️ Excluir Tratativa #{ocor_id}", key=f"btn_del_{ocor_id}"):
+                    sucesso = deletar_ocorrencia_db(ocor_id, st.session_state.user.email)
+                    if sucesso:
+                        st.toast(f"Tratativa #{ocor_id} excluída com sucesso!", icon="🗑️")
+                        st.rerun()
 
 # ==========================================
-# ABA 2: CADASTRO COM ANEXO E AUTOR (CAMPOS INVERTIDOS)
+# ABA 2: CADASTRO COM ANEXO E AUTOR
 # ==========================================
 with tabs[1]:
     st.subheader("➕ Novo Mapeamento Técnico")
@@ -534,7 +511,7 @@ with tabs[1]:
                     "nivel": in_nivel,
                     "tempo_estimado": in_tempo,
                     "anexo_url": anexo_url,
-                    "autor_email": st.session_state.user.email  # Salva o e-mail para extrair o primeiro nome dinamicamente
+                    "autor_email": st.session_state.user.email
                 }
                 salvar_ocorrencia_db(dados, st.session_state.user.email)
                 st.toast("Tratativa salva com sucesso!", icon="🎉")
@@ -543,7 +520,7 @@ with tabs[1]:
                 st.error("Preencha o problema, motivo e solução.")
 
 # ==========================================
-# ABA 3: DASHBOARD EXECUTIVO (REMODELADO PARA MEMÓRIA DE CASOS ESPORÁDICOS)
+# ABA 3: DASHBOARD EXECUTIVO
 # ==========================================
 with tabs[2]:
     st.subheader("📊 Painel de Memória de Diagnósticos")
@@ -686,99 +663,96 @@ with tabs[2]:
                 st.info("Sem dados suficientes para os motivos.")
 
 # ==========================================
-# ABA 4: ASSISTENTE IA (EXCLUSIVO ADMIN)
+# ABA 4: ASSISTENTE IA (LIBERADO PARA TODOS)
 # ==========================================
-if st.session_state.user_role == "Admin":
-    with tabs[3]:
-        st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
-        st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
-        
-        pergunta_tecnico = st.text_area(
-            "Descreva detalhadamente o sintoma do problema:", 
-            placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
-        )
-        
-        if st.button("🔍 Gerar Diagnóstico com IA"):
-            if not pergunta_tecnico.strip():
-                st.warning("Por favor, descreva o problema antes de consultar a IA.")
-            elif df_ocorrencias.empty:
-                st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
-            elif "OPENAI_API_KEY" not in st.secrets:
-                st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
-            else:
-                with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
-                    try:
-                        contexto_base = ""
-                        for _, row in df_ocorrencias.iterrows():
-                            contexto_base += f"""
-                            - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
-                              Problema: {row.get('problema')}
-                              Causa Raiz: {row.get('motivo')}
-                              Solução Aplicada: {row.get('solucao')}
-                            ------------------------------------
-                            """
-
-                        prompt_sistema = f"""
-                        Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
-                        Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
-
-                        Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
-                        {contexto_base}
-
-                        Diretrizes para a sua resposta:
-                        1. Analise o relato do técnico.
-                        2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
-                        3. Forneça uma resposta estruturada contendo:
-                           - **Causas Prováveis**
-                           - **Passo a Passo de Investigação**
-                           - **Recomendações/Ações Imediatas**
-                        4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
-                        5. Mantenha um tom profissional, direto e técnico.
+with tabs[3]:
+    st.subheader("🤖 Assistente Virtual de Diagnóstico Avançado (IA)")
+    st.caption("Descreva cenários inéditos ou dúvidas de campo. A IA vai analisar toda a base de conhecimentos do banco para ajudar.")
+    
+    pergunta_tecnico = st.text_area(
+        "Descreva detalhadamente o sintoma do problema:", 
+        placeholder="Ex: A catraca está apresentando falha intermitente ao validar a digital no horário de pico, e o sistema fica lento. O que pode ser?"
+    )
+    
+    if st.button("🔍 Gerar Diagnóstico com IA"):
+        if not pergunta_tecnico.strip():
+            st.warning("Por favor, descreva o problema antes de consultar a IA.")
+        elif df_ocorrencias.empty:
+            st.info("O banco de dados ainda está vazio. Cadastre algumas ocorrências para que a IA possa utilizá-las como referência.")
+        elif "OPENAI_API_KEY" not in st.secrets:
+            st.error("Chave 'OPENAI_API_KEY' não encontrada nos secrets do Streamlit.")
+        else:
+            with st.spinner("Consultando histórico do banco e gerando hipóteses técnicas..."):
+                try:
+                    contexto_base = ""
+                    for _, row in df_ocorrencias.iterrows():
+                        contexto_base += f"""
+                        - [Registro #{row.get('id')}] Sistema: {row.get('sistema')} | Equipamento: {row.get('equipamento')}
+                          Problema: {row.get('problema')}
+                          Causa Raiz: {row.get('motivo')}
+                          Solução Aplicada: {row.get('solucao')}
+                        ------------------------------------
                         """
 
-                        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[
-                                {"role": "system", "content": prompt_sistema},
-                                {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
-                            ],
-                            temperature=0.3
-                        )
+                    prompt_sistema = f"""
+                    Você é um especialista em suporte técnico e engenharia de hardware/software da empresa.
+                    Seu objetivo é auxiliar os analistas de campo a diagnosticar falhas complexas.
 
-                        diagnostico_ia = response.choices[0].message.content
+                    Abaixo está toda a base histórica de ocorrências resolvidas no nosso banco de dados:
+                    {contexto_base}
 
-                        st.markdown("---")
-                        st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
-                        st.info(diagnostico_ia)
+                    Diretrizes para a sua resposta:
+                    1. Analise o relato do técnico.
+                    2. Encontre padrões ou pontos de similaridade com os casos históricos fornecidos.
+                    3. Forneça uma resposta estruturada contendo:
+                       - **Causas Prováveis**
+                       - **Passo a Passo de Investigação**
+                       - **Recomendações/Ações Imediatas**
+                    4. Se for um caso inédito, deduza soluções plausíveis com base na engenharia dos sistemas e hardwares cadastrados.
+                    5. Mantenha um tom profissional, direto e técnico.
+                    """
 
-                    except Exception as e:
-                        st.error(f"Erro ao processar chamada na IA: {e}")
+                    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": prompt_sistema},
+                            {"role": "user", "content": f"Ocorrência em campo: {pergunta_tecnico}"}
+                        ],
+                        temperature=0.3
+                    )
+
+                    diagnostico_ia = response.choices[0].message.content
+
+                    st.markdown("---")
+                    st.markdown("### 💡 Diagnóstico e Plano de Ação Sugerido")
+                    st.info(diagnostico_ia)
+
+                except Exception as e:
+                    st.error(f"Erro ao processar chamada na IA: {e}")
 
 # ==========================================
-# ABA 5: AUDIT LOG (EXCLUSIVO ADMIN)
+# ABA 5: AUDIT LOG (LIBERADO PARA TODOS)
 # ==========================================
-if st.session_state.user_role == "Admin":
-    indice_audit = 4 if "🤖 Assistente IA" in abas_navegacao else 1
-    with tabs[indice_audit]:
-        st.subheader("📜 Histórico de Auditoria (Audit Log)")
-        st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
-        
-        try:
-            res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
-            df_logs = pd.DataFrame(res_logs.data)
-            if not df_logs.empty:
-                st.dataframe(
-                    df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
-                    column_config={
-                        "created_at": "Data/Hora",
-                        "usuario_email": "Usuário",
-                        "acao": "Ação",
-                        "detalhes": "Detalhamento"
-                    },
-                    use_container_width=True
-                )
-            else:
-                st.info("Nenhum histórico registrado no momento.")
-        except Exception as e:
-            st.error(f"Erro ao carregar log: {e}")
+with tabs[4]:
+    st.subheader("📜 Histórico de Auditoria (Audit Log)")
+    st.caption("Acompanhe todas as interações e alterações realizadas na plataforma.")
+    
+    try:
+        res_logs = supabase.table("audit_logs").select("*").order("id", desc=True).limit(100).execute()
+        df_logs = pd.DataFrame(res_logs.data)
+        if not df_logs.empty:
+            st.dataframe(
+                df_logs[["created_at", "usuario_email", "acao", "detalhes"]],
+                column_config={
+                    "created_at": "Data/Hora",
+                    "usuario_email": "Usuário",
+                    "acao": "Ação",
+                    "detalhes": "Detalhamento"
+                },
+                use_container_width=True
+            )
+        else:
+            st.info("Nenhum histórico registrado no momento.")
+    except Exception as e:
+        st.error(f"Erro ao carregar log: {e}")
