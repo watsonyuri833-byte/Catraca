@@ -106,20 +106,12 @@ st.markdown(
         border-top: 2px solid #58a6ff !important;
     }
 
-    /* ANIMAÇÃO DA CATRACA NA SIDEBAR */
     @keyframes balancoCatraca {
-        0% {
-            transform: rotate(-6deg);
-        }
-        50% {
-            transform: rotate(6deg);
-        }
-        100% {
-            transform: rotate(-6deg);
-        }
+        0% { transform: rotate(-6deg); }
+        50% { transform: rotate(6deg); }
+        100% { transform: rotate(-6deg); }
     }
 
-    /* Alimenta o balanço na segunda imagem da sidebar (a catraca) */
     [data-testid="stSidebar"] div[data-testid="stImage"]:nth-of-type(2) img {
         animation: balancoCatraca 3s ease-in-out infinite !important;
         border-radius: 8px;
@@ -170,7 +162,6 @@ gemini_client = init_gemini(st.session_state.active_gemini_key)
 # ==========================================
 def buscar_ocorrencias_db():
     if not supabase or not st.session_state.active_key:
-        st.warning("⚠️ Chave de API do Supabase ausente nas configurações internas.")
         return pd.DataFrame()
     try:
         res = supabase.table("ocorrencias").select("*").order("id", desc=True).execute()
@@ -181,11 +172,6 @@ def buscar_ocorrencias_db():
                 df[col] = None
         return df
     except Exception as e:
-        err_msg = str(e)
-        if "401" in err_msg or "Unauthorized" in err_msg or "JWT" in err_msg:
-            st.error("🚨 **Erro 401 (Autenticação Negada):** A chave de acesso ao Supabase expirou ou é inválida.")
-        else:
-            st.error(f"Erro ao buscar ocorrências no banco: {e}")
         return pd.DataFrame()
 
 def buscar_manuais_db():
@@ -335,7 +321,6 @@ def processar_importacao_txt(file_bytes, usuario_email):
             registrar_log(usuario_email, "IMPORTOU", f"Importou {importadas} ocorrências via TXT.")
         return importadas
     except Exception as e:
-        st.error(f"Erro ao processar importação do arquivo TXT: {e}")
         return 0
 
 def upload_arquivo_unico(file):
@@ -364,7 +349,6 @@ def upload_arquivo_unico(file):
             u = str(url_res) if url_res else None
         return u
     except Exception as e:
-        st.error(f"Erro no upload do arquivo {file.name}: {e}")
         return None
 
 def upload_multiplos_arquivos(files):
@@ -379,7 +363,7 @@ def upload_multiplos_arquivos(files):
     return ",".join(urls) if urls else None
 
 # ==========================================
-# 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA CONTINUADA
+# 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA
 # ==========================================
 def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
     if not query:
@@ -412,23 +396,30 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
 
     return [r[1] for r in resultados_ocor[:4]], [r[1] for r in resultados_man[:4]]
 
-def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man):
+def processar_resposta_gemini_chat(historico_conversa, contexto_ocor, contexto_man, modo_onboarding=False):
     if not gemini_client:
         return "⚠️ Chave de API do Gemini não configurada no sistema. Por favor, contate o administrador."
 
-    prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
-Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados interna de ocorrências e manuais fornecida abaixo, combinando-a com seu raciocínio técnico avançado.
+    if modo_onboarding:
+        prompt_sistema = """Você é o assistente virtual oficial e especializado em **instrução de onboarding, instalação e configuração de catracas e hardwares** da actuar.group.
+Seu objetivo principal é guiar a equipe de onboarding e suporte de campo passo a passo de forma simples, direta e didática para **eliminar dúvidas repetitivas básicas**.
 
-Diretrizes de Resposta:
-1. Analise o histórico da conversa e os dados da base técnica interna (Ocorrências e Manuais).
-2. Forneça uma resposta estruturada e clara, cruzando os casos cadastrados com sua capacidade analítica de IA para troubleshooting em redes, hardware, protocolos TCP/IP e controle de acesso.
-3. Se houver correspondência na base de dados, utilize-a como referência principal. Caso contrário, raciocine criticamente com base no conhecimento técnico geral de suporte.
-4. Mantenha o tom profissional, direto e especifique soluções em etapas numeradas.
+Diretrizes obrigatórias:
+1. **Foque em resoluções rápidas e preventivas de campo:**
+   - **Firewall:** Sempre lembre se o Windows Firewall ou antivírus de terceiro está desativado caso o sistema não comunique com a catraca.
+   - **Conflito de Redes / Faixas de IP:** Se o facial ou catraca estiver em uma faixa de rede diferente do computador, oriente o operador a criar um IP virtual (Alias de IP) na máquina para acessar a controladora/Control ID, configurar a rede corretamente para a mesma faixa local e depois retornar o IP do computador.
+   - **Catraca não encontrada / Erros comuns:** Oriente reiniciar o equipamento primeiro, checar conexões de cabo de rede/energia, ou em último caso orientar sobre o procedimento de reset de fábrica.
+2. Dê respostas formatadas em etapas numeradas claras, fáceis de ler rapidamente por quem está em atendimento com o cliente.
+3. Se houver correspondência na base de dados interna fornecida abaixo, use-a como base prioritária.
+"""
+    else:
+        prompt_sistema = """Você é o Assistente Especialista em Suporte Técnico da actuar.group.
+Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados interna de ocorrências e manuais fornecida abaixo, combinando-a com seu raciocínio técnico avançado.
 """
 
     contexto_str = "=== HISTÓRICO COMPLETO DA CONVERSA NO TÓPICO ===\n"
     for msg in historico_conversa:
-        papel = "TÉCNICO" if msg["role"] == "user" else "COPILOT"
+        papel = "TÉCNICO" if msg["role"] == "user" else ("ONBOARDING" if modo_onboarding else "COPILOT")
         contexto_str += f"{papel}: {msg['content']}\n\n"
 
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
@@ -440,7 +431,7 @@ Diretrizes de Resposta:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
     
     if not contexto_man and not contexto_ocor:
-        contexto_str += "[AVISO] Nenhum registro exato encontrado na base interna. Utilize seu raciocínio técnico avançado para sugerir a tratativa ideal.\n\n"
+        contexto_str += "[AVISO] Nenhum registro exato encontrado na base interna. Utilize seu conhecimento técnico especializado para orientar o procedimento.\n\n"
 
     try:
         response = gemini_client.models.generate_content(
@@ -472,7 +463,6 @@ with st.sidebar:
     st.markdown("---")
 
     if os.path.exists("catraca.png"):
-        # Removido o argumento 'alt' que causava o TypeError na versão atual do Streamlit
         st.image("catraca.png", width=240)
         st.caption(
             "<div style='text-align: center; color: #8b949e; font-size: 11px;'>"
@@ -533,6 +523,7 @@ df_manuais = buscar_manuais_db()
 abas_navegacao = [
     "📋 Diagnósticos",
     "🤖 Gemini IA Copilot",
+    "👩‍💻 Onboarding (Instalação)",
     "📚 Manuais & Produtos",
     "📺 Modo TV",
     "⭐ Meus Favoritos",
@@ -597,7 +588,7 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA 1: DIAGNÓSTICOS (Com Edição Completa e Exclusão)
+# ABA 1: DIAGNÓSTICOS
 # ==========================================
 indice_diag = abas_navegacao.index("📋 Diagnósticos")
 with tabs[indice_diag]:
@@ -823,19 +814,19 @@ with tabs[indice_diag]:
                                 st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
 
 # ==========================================
-# ABA 2: GEMINI IA COPILOT (ANÁLISE RAG + IA EM PRIMEIRO LUGAR)
+# ABA 2: GEMINI IA COPILOT
 # ==========================================
 indice_copilot = abas_navegacao.index("🤖 Gemini IA Copilot")
 with tabs[indice_copilot]:
     st.subheader("🤖 Assistente IA de Diagnóstico Avançado")
-    st.caption("O Copilot cruza instantaneamente a sua dúvida com o banco de dados interno e entrega a resposta fundamentada pela IA. Continue conversando logo abaixo se precisar ajustar detalhes.")
+    st.caption("O Copilot cruza instantaneamente a sua dúvida com o banco de dados interno e entrega a resposta fundamentada pela IA.")
 
     if "historico_copilot" not in st.session_state:
         st.session_state.historico_copilot = []
 
     col_cp_top, col_cp_reset = st.columns([5, 1])
     with col_cp_reset:
-        if st.button("🔄 Novo Tópico"):
+        if st.button("🔄 Novo Tópico", key="reset_copilot"):
             st.session_state.historico_copilot = []
             st.rerun()
 
@@ -843,7 +834,7 @@ with tabs[indice_copilot]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Digite sua dúvida técnica para o Copilot...")
+    user_input = st.chat_input("Digite sua dúvida técnica para o Copilot...", key="input_copilot")
 
     if user_input:
         st.session_state.historico_copilot.append({"role": "user", "content": user_input})
@@ -860,14 +851,60 @@ with tabs[indice_copilot]:
                 resposta_ia = processar_resposta_gemini_chat(
                     historico_conversa=st.session_state.historico_copilot,
                     contexto_ocor=match_ocor,
-                    contexto_man=match_man
+                    contexto_man=match_man,
+                    modo_onboarding=False
                 )
 
                 st.markdown(resposta_ia)
                 st.session_state.historico_copilot.append({"role": "assistant", "content": resposta_ia})
 
 # ==========================================
-# ABA 3: MANUAIS & PRODUTOS
+# ABA 3: ONBOARDING (INSTALAÇÃO)
+# ==========================================
+indice_onboarding = abas_navegacao.index("👩‍💻 Onboarding (Instalação)")
+with tabs[indice_onboarding]:
+    st.subheader("👩‍💻 Assistente de Onboarding & Instalação de Catracas")
+    st.caption("Especializada em instruir a equipe de onboarding e suporte básico: firewall, faixas de rede, IP virtual para Control ID, catraca não encontrada, reinicialização e reset de fábrica.")
+
+    if "historico_onboarding" not in st.session_state:
+        st.session_state.historico_onboarding = []
+
+    col_ab_top, col_ab_reset = st.columns([5, 1])
+    with col_ab_reset:
+        if st.button("🔄 Novo Atendimento Onboarding", key="reset_onboarding"):
+            st.session_state.historico_onboarding = []
+            st.rerun()
+
+    for msg in st.session_state.historico_onboarding:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input_ab = st.chat_input("Digite a dúvida ou o erro de instalação (Ex: Catraca não acha, IP diferente, Firewall...)", key="input_onboarding")
+
+    if user_input_ab:
+        st.session_state.historico_onboarding.append({"role": "user", "content": user_input_ab})
+        with st.chat_message("user"):
+            st.markdown(user_input_ab)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Assistente de onboarding preparando passo a passo de instalação..."):
+                duvida_primeira_ab = st.session_state.historico_onboarding[0]["content"] if len(st.session_state.historico_onboarding) > 0 else user_input_ab
+                query_busca_ab = f"{duvida_primeira_ab} {user_input_ab}"
+
+                match_ocor_ab, match_man_ab = buscar_contexto_relevante(query_busca_ab, df_ocorrencias, df_manuais)
+
+                resposta_onboarding = processar_resposta_gemini_chat(
+                    historico_conversa=st.session_state.historico_onboarding,
+                    contexto_ocor=match_ocor_ab,
+                    contexto_man=match_man_ab,
+                    modo_onboarding=True
+                )
+
+                st.markdown(resposta_onboarding)
+                st.session_state.historico_onboarding.append({"role": "assistant", "content": resposta_onboarding})
+
+# ==========================================
+# ABA 4: MANUAIS & PRODUTOS
 # ==========================================
 indice_manuais = abas_navegacao.index("📚 Manuais & Produtos")
 with tabs[indice_manuais]:
@@ -909,7 +946,7 @@ with tabs[indice_manuais]:
                         st.rerun()
 
 # ==========================================
-# ABA 4: MODO TV
+# ABA 5: MODO TV
 # ==========================================
 indice_tv = abas_navegacao.index("📺 Modo TV")
 with tabs[indice_tv]:
@@ -925,7 +962,7 @@ with tabs[indice_tv]:
         st.dataframe(df_ocorrencias[["sistema", "equipamento", "problema", "status", "nivel"]].head(12), use_container_width=True)
 
 # ==========================================
-# ABA 5: FAVORITOS
+# ABA 6: FAVORITOS
 # ==========================================
 indice_fav = abas_navegacao.index("⭐ Meus Favoritos")
 with tabs[indice_fav]:
@@ -938,7 +975,7 @@ with tabs[indice_fav]:
                 renderizar_solucao_estruturada(row.get("solucao"), row.get("anexo_url"))
 
 # ==========================================
-# ABA 6: CADASTRAR TRATATIVA
+# ABA 7: CADASTRAR TRATATIVA
 # ==========================================
 indice_cad = abas_navegacao.index("➕ Cadastrar Tratativa")
 with tabs[indice_cad]:
@@ -946,11 +983,11 @@ with tabs[indice_cad]:
     with st.form("form_novo", clear_on_submit=True):
         col_c1, col_c2 = st.columns(2)
         with col_c1:
-            in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE)
-            in_status = st.selectbox("📌 Status:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"])
+            in_hw = st.selectbox("⚙️ Catraca / Hardware:", LISTA_HARDWARE, key="cad_hw")
+            in_status = st.selectbox("📌 Status:", ["🟢 Solução Definitiva", "🟡 Contorno / Paliativo", "🔴 Bug / Em Análise"], key="cad_status")
         with col_c2:
-            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA)
-            in_nivel = st.selectbox("📊 Nível:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"])
+            in_sist = st.selectbox("💻 Sistema (Software):", LISTA_SISTEMA, key="cad_sist")
+            in_nivel = st.selectbox("📊 Nível:", ["N1 - Fácil / Rápido", "N2 - Intermediário", "N3 - Avançado / Laboratório"], key="cad_nivel")
 
         in_prob = st.text_input("Problema (Sintoma):")
         in_files_prob = st.file_uploader("📎 Arquivos do Problema:", accept_multiple_files=True, key="cad_prob_files")
@@ -991,7 +1028,7 @@ with tabs[indice_cad]:
                 st.error("Preencha o problema, motivo e ao menos 1 passo da solução.")
 
 # ==========================================
-# ABA 7: IMPORTAR & EXPORTAR TXT
+# ABA 8: IMPORTAR & EXPORTAR TXT
 # ==========================================
 indice_export = abas_navegacao.index("📥 Importar & Exportar (TXT)")
 with tabs[indice_export]:
@@ -1028,7 +1065,7 @@ with tabs[indice_export]:
     )
 
 # ==========================================
-# ABA 8: AUDIT LOG
+# ABA 9: AUDIT LOG
 # ==========================================
 indice_audit = abas_navegacao.index("📜 Audit Log (Gestão)")
 with tabs[indice_audit]:
