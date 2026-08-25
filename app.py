@@ -180,8 +180,13 @@ def buscar_manuais_db():
     try:
         res = supabase.table("manuais_produto").select("*").order("id", desc=True).execute()
         df = pd.DataFrame(res.data)
-        if not df.empty and "hardware" not in df.columns:
-            df["hardware"] = "Indiferente"
+        if not df.empty:
+            if "hardware" not in df.columns:
+                df["hardware"] = "Indiferente"
+            if "link_url" not in df.columns:
+                df["link_url"] = None
+            if "link_titulo" not in df.columns:
+                df["link_titulo"] = None
         return df
     except Exception:
         return pd.DataFrame()
@@ -276,6 +281,11 @@ def renderizar_bloco_imagens(urls_str, titulo_secao=""):
                 else:
                     st.markdown(f"📄 Arquivo {idx + 1}: [**{nome_exibicao}**]({url_file})")
 
+def renderizar_bloco_links(link_url, link_titulo):
+    if link_url and pd.notna(link_url) and str(link_url).strip() != "":
+        titulo_exibicao = link_titulo if (link_titulo and pd.notna(link_titulo) and str(link_titulo).strip() != "") else "Acessar Link Externo / Vídeo"
+        st.markdown(f"🔗 [**{titulo_exibicao}**]({link_url.strip()})", unsafe_allow_html=True)
+
 # ==========================================
 # 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA
 # ==========================================
@@ -326,7 +336,10 @@ Sua missão é auxiliar os técnicos analisando obrigatoriamente a base de dados
     contexto_str += "=== DADOS DISPONÍVEIS NA BASE TÉCNICA INTERNA (OCORRÊNCIAS & MANUAIS) ===\n"
     if contexto_man:
         for m in contexto_man:
-            contexto_str += f"[MAPA MENTAL/MANUAL] Título: {m.get('titulo')} | Galho: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n\n"
+            contexto_str += f"[MAPA MENTAL/MANUAL] Título: {m.get('titulo')} | Galho: {m.get('sistema_produto')} > {m.get('hardware')}\nConteúdo: {m.get('conteudo')}\n"
+            if m.get('link_url'):
+                contexto_str += f"Link Relacionado ({m.get('link_titulo')}): {m.get('link_url')}\n"
+            contexto_str += "\n"
     if contexto_ocor:
         for o in contexto_ocor:
             contexto_str += f"[OCORRÊNCIA] Problema: {o.get('problema')} | Causa: {o.get('motivo')}\nSolução: {o.get('solucao')}\n\n"
@@ -613,7 +626,6 @@ with tabs[indice_onboarding]:
     st.subheader("🌳 Mapa Hierárquico de Onboarding (Legado vs EDesk)")
     st.caption("Navegue pelos galhos do mapa mental abaixo. O que é cadastrado aqui reflete exatamente na estrutura visualizada pelos técnicos.")
 
-    # Seletor do Nó Raiz principal para Visualizar ou Inserir diretamente no galho
     galhos_principais = ["Legado", "EDesk"]
     
     col_m_acao, col_m_filtro = st.columns([2, 2])
@@ -628,11 +640,10 @@ with tabs[indice_onboarding]:
         st.info("O mapa está vazio. Utilize a opção 'Adicionar Novo Nó / Galho' acima para estruturar o primeiro item.")
     else:
         df_m = df_manuais.copy()
-        for col_n in ["sistema_produto", "hardware", "nivel_1_img"]:
+        for col_n in ["sistema_produto", "hardware", "link_url", "link_titulo", "anexo_url"]:
             if col_n not in df_m.columns:
                 df_m[col_n] = None
 
-        # Renderização em formato de Árvore Mental (Nó Raiz -> Galhos -> Conteúdo)
         for raiz in galhos_principais:
             df_raiz = df_m[df_m["sistema_produto"] == raiz]
             
@@ -640,11 +651,9 @@ with tabs[indice_onboarding]:
                 if df_raiz.empty:
                     st.markdown(f"_Nenhum conteúdo cadastrado sob **{raiz}**._")
                 else:
-                    # Sub-galhos: Manual de Instalação vs Erros e Soluções
                     sub_galhos = df_raiz["hardware"].unique()
                     
                     for sg in sub_galhos:
-                        icone_sg = "📘" if "Manual" in str(sg) else ("⚠️" if "Erro" in str(sg) else "📁")
                         df_sg = df_raiz[df_raiz["hardware"] == sg]
                         
                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;╰─ 📂 **{sg}**")
@@ -653,13 +662,15 @@ with tabs[indice_onboarding]:
                             with st.container(border=True):
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╰─ 🔹 **{row_item.get('titulo')}**")
                                 st.markdown(f"{row_item.get('conteudo')}")
+                                
+                                # Renderiza links e imagens se existirem
+                                renderizar_bloco_links(row_item.get('link_url'), row_item.get('link_titulo'))
                                 renderizar_bloco_imagens(row_item.get('anexo_url'), "🖼️ Evidências / Imagens:")
                                 
                                 if st.button(f"🗑️ Excluir Nó #{row_item.get('id')}", key=f"del_no_{row_item.get('id')}"):
                                     deletar_manual_db(row_item.get('id'), "tecnico@actuar.group")
                                     st.rerun()
 
-    # Se o usuário escolheu adicionar direto na tela do mapa
     if modo_mapa == "➕ Adicionar Novo Nó / Galho":
         st.markdown("---")
         st.markdown(f"### ➕ Adicionar Conteúdo no Galho: **{galho_selecionado_filtro}**")
@@ -670,6 +681,14 @@ with tabs[indice_onboarding]:
             titulo_no = st.text_input("Título do Tópico / Erro:", placeholder="Ex: Configuração de IP / Erro de timeout...")
             conteudo_no = st.text_area("Descrição detalhada do nó / Passo a passo:", placeholder="Descreva o procedimento ou a solução exibida no mapa...", height=140)
             
+            st.markdown("---")
+            st.markdown("🌐 **Vídeo ou Link Externo de Apoio (Opcional):**")
+            col_l1, col_l2 = st.columns([2, 1])
+            with col_l1:
+                link_url_in = st.text_input("URL do Link / Vídeo:", placeholder="https://youtube.com/watch?v=... ou link da wiki")
+            with col_l2:
+                link_titulo_in = st.text_input("Nome/Título do Link:", placeholder="Ex: Vídeo Explicativo YouTube")
+
             arquivos_no = st.file_uploader("📷 Anexar Imagens / Evidências para este nó:", accept_multiple_files=True, key="map_files")
             
             if st.form_submit_button("💾 Inserir Nó no Mapa"):
@@ -681,6 +700,8 @@ with tabs[indice_onboarding]:
                         "hardware": sub_galho_tipo,
                         "titulo": titulo_no.strip(),
                         "conteudo": conteudo_no.strip(),
+                        "link_url": link_url_in.strip() if link_url_in else None,
+                        "link_titulo": link_titulo_in.strip() if link_titulo_in else None,
                         "anexo_url": url_anexos_no
                     }
                     
@@ -707,6 +728,13 @@ with tabs[indice_manuais]:
 
         m_conteudo = st.text_area("📄 Conteúdo Completo e Instruções do Produto:", placeholder="Escreva aqui todas as instruções...", height=200)
 
+        st.markdown("🌐 **Vídeo ou Link Externo de Apoio (Opcional):**")
+        col_ml1, col_ml2 = st.columns([2, 1])
+        with col_ml1:
+            m_link_url = st.text_input("URL do Link / Vídeo:", placeholder="https://...", key="man_link_url")
+        with col_ml2:
+            m_link_titulo = st.text_input("Nome/Título do Link:", placeholder="Ex: Vídeo de Treinamento", key="man_link_tit")
+
         if st.form_submit_button("💾 Salvar Manual na Base de Conhecimento"):
             if m_titulo and m_conteudo:
                 dados_manual = {
@@ -714,6 +742,8 @@ with tabs[indice_manuais]:
                     "hardware": m_hardware,
                     "titulo": m_titulo,
                     "conteudo": m_conteudo,
+                    "link_url": m_link_url.strip() if m_link_url else None,
+                    "link_titulo": m_link_titulo.strip() if m_link_titulo else None,
                 }
                 if salvar_manual_db(dados_manual, "tecnico@actuar.group"):
                     st.toast("Manual cadastrado com sucesso!", icon="🎉")
@@ -727,6 +757,8 @@ with tabs[indice_manuais]:
             m_id = row["id"]
             with st.expander(f"📖 [ID #{m_id}] {row.get('titulo')} ({row.get('sistema_produto')} / {row.get('hardware')})"):
                 st.markdown(f"**Conteúdo Registrado:**\n{row.get('conteudo')}")
+                renderizar_bloco_links(row.get('link_url'), row.get('link_titulo'))
+                
                 if st.button(f"🗑️ Excluir Manual #{m_id}", key=f"del_manual_{m_id}"):
                     if deletar_manual_db(m_id, "tecnico@actuar.group"):
                         st.toast("Manual excluído!", icon="🗑️")
@@ -826,7 +858,10 @@ with tabs[indice_export]:
     if not df_manuais.empty:
         conteudo_txt += "--- SEÇÃO 1: MAPA HIERÁRQUICO DE ONBOARDING ---\n"
         for _, row in df_manuais.iterrows():
-            conteudo_txt += f"Galho: {row.get('sistema_produto')} | Subpasta: {row.get('hardware')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n" + "-" * 50 + "\n"
+            conteudo_txt += f"Galho: {row.get('sistema_produto')} | Subpasta: {row.get('hardware')} | Título: {row.get('titulo')}\nConteúdo: {row.get('conteudo')}\n"
+            if row.get('link_url'):
+                conteudo_txt += f"Link ({row.get('link_titulo')}): {row.get('link_url')}\n"
+            conteudo_txt += "-" * 50 + "\n"
 
     if not df_ocorrencias.empty:
         conteudo_txt += "\n--- SEÇÃO 2: OCORRÊNCIAS ---\n"
