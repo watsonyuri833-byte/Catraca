@@ -52,15 +52,15 @@ def buscar_contexto_relevante():
         return []
 
 # ==========================================
-# 4. MOTOR DA IA (Pesquisa por Significado)
+# 4. MOTOR DA IA (Com Depuração de Erros)
 # ==========================================
 def gerar_resposta_cliente(duvida: str, contexto_ocor: list):
     prompt_sistema = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
-Sua missão é ajudar o cliente a resolver problemas com catracas e sistemas de acesso de forma muito simples e direta.
+Sua missão é ajudar o cliente a resolver problemas com catracas de forma muito simples e direta.
 
 DIRETRIZES DE PESQUISA POR SENTIDO:
 1. Abaixo está a nossa Base de Conhecimento completa.
-2. Analise a DÚVIDA DO CLIENTE e procure na base um problema que tenha o MESMO SIGNIFICADO ou CONTEXTO, mesmo que as palavras usadas sejam totalmente diferentes (ex: "apitar" = "bip" = "barulho sonoro" = "alarme").
+2. Analise a DÚVIDA DO CLIENTE e procure na base um problema que tenha o MESMO SIGNIFICADO ou CONTEXTO, mesmo que as palavras usadas sejam totalmente diferentes.
 
 DIRETRIZES DE RESPOSTA:
 3. Se encontrar um problema com o mesmo sentido, entregue APENAS a solução em um passo a passo numerado, curto e direto ao ponto.
@@ -84,7 +84,6 @@ DIRETRIZES DE RESPOSTA:
         contexto_str += "Base de dados vazia.\n"
 
     try:
-        # Usando o modelo 1.5-flash pela sua alta capacidade de memória e contexto
         response = gemini_client.models.generate_content(
             model='gemini-1.5-flash',
             contents=contexto_str,
@@ -95,7 +94,9 @@ DIRETRIZES DE RESPOSTA:
         )
         return response.text
     except Exception as e:
-        return "Ocorreu um erro ao processar sua dúvida. Por favor, contate o suporte."
+        # ISTO VAI MOSTRAR O ERRO REAL NO SEU TERMINAL PRETO:
+        print(f"\n[ERRO DETALHADO DO GEMINI]: {str(e)}\n")
+        return f"Erro interno ao falar com a IA: {str(e)}"
 
 # ==========================================
 # 5. ROTA PRINCIPAL DA API
