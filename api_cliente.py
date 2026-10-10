@@ -11,19 +11,16 @@ from dotenv import load_dotenv
 # ==========================================
 # 1. CARREGAR VARIÁVEIS OCULTAS
 # ==========================================
-# Puxa as informações do seu arquivo .env sem expor no código
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-API_KEY = os.getenv("API_KEY") # PUXA A SUA SENHA DO .ENV
+API_KEY = os.getenv("API_KEY")
 
-# Validação de segurança
 if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, API_KEY]):
     raise ValueError("Faltam variáveis de ambiente! Verifique se o seu arquivo .env está configurado corretamente.")
 
-# Senha segura oculta
 MINHA_CHAVE_DE_API = API_KEY 
 
 # Inicializando conexões
@@ -43,7 +40,6 @@ class PerguntaCliente(BaseModel):
 # ==========================================
 def buscar_contexto_relevante():
     try:
-        # Trazemos até 200 ocorrências do banco para a IA analisar o sentido
         res = supabase.table("ocorrencias").select("problema, motivo, solucao").limit(200).execute()
         return res.data if res.data else []
         
@@ -52,7 +48,7 @@ def buscar_contexto_relevante():
         return []
 
 # ==========================================
-# 4. MOTOR DA IA (Com Depuração de Erros)
+# 4. MOTOR DA IA (Com o modelo anterior)
 # ==========================================
 def gerar_resposta_cliente(duvida: str, contexto_ocor: list):
     prompt_sistema = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
@@ -60,7 +56,7 @@ Sua missão é ajudar o cliente a resolver problemas com catracas de forma muito
 
 DIRETRIZES DE PESQUISA POR SENTIDO:
 1. Abaixo está a nossa Base de Conhecimento completa.
-2. Analise a DÚVIDA DO CLIENTE e procure na base um problema que tenha o MESMO SIGNIFICADO ou CONTEXTO, mesmo que as palavras usadas sejam totalmente diferentes.
+2. Analise a DÚVIDA DO CLIENTE e procure na base um problema que tenha o MESMO SIGNIFICADO ou CONTEXTO, mesmo que as palavras usadas sejam totalmente diferentes (ex: "apitar" = "bip" = "barulho sonoro" = "alarme").
 
 DIRETRIZES DE RESPOSTA:
 3. Se encontrar um problema com o mesmo sentido, entregue APENAS a solução em um passo a passo numerado, curto e direto ao ponto.
@@ -85,7 +81,7 @@ DIRETRIZES DE RESPOSTA:
 
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-3.6-flash', # Retornando para o modelo anterior
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -94,9 +90,8 @@ DIRETRIZES DE RESPOSTA:
         )
         return response.text
     except Exception as e:
-        # ISTO VAI MOSTRAR O ERRO REAL NO SEU TERMINAL PRETO:
-        print(f"\n[ERRO DETALHADO DO GEMINI]: {str(e)}\n")
-        return f"Erro interno ao falar com a IA: {str(e)}"
+        print(f"\n[ERRO GEMINI]: {str(e)}\n")
+        return "Ocorreu um erro ao processar sua dúvida. Por favor, contate o suporte."
 
 # ==========================================
 # 5. ROTA PRINCIPAL DA API
@@ -106,14 +101,10 @@ def resolver_problema(
     requisicao: PerguntaCliente, 
     token_acesso: str = Header(None)
 ):
-    # Trava de Segurança
     if token_acesso != f"Bearer {MINHA_CHAVE_DE_API}":
         raise HTTPException(status_code=401, detail="Chave de API inválida. Acesso Negado.")
 
-    # Busca todos os problemas (sem filtrar palavras)
     contexto = buscar_contexto_relevante()
-    
-    # A IA interpreta o sentido da dúvida comparando com toda a base
     resposta_formatada = gerar_resposta_cliente(requisicao.duvida, contexto)
 
     return {
