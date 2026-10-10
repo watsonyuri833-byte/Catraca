@@ -91,7 +91,7 @@ DIRETRIZES DE RESPOSTA:
         return response.text
     except Exception as e:
         print(f"\n[ERRO GEMINI]: {str(e)}\n")
-        return "Ocorreu um erro ao processar sua dúvida. Por favor, contate o suporte."
+        return "Essa dúvida é somente com a equipe técnica. Por favor, contate o suporte."
 
 # ==========================================
 # 5. ROTA PRINCIPAL DA API
