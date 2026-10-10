@@ -19,13 +19,14 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("API_KEY") # PUXA A SUA SENHA DO .ENV
 
 # Validação de segurança para garantir que o .env foi lido corretamente
-if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY]):
+if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, API_KEY]):
     raise ValueError("Faltam variáveis de ambiente! Verifique se o seu arquivo .env está configurado corretamente na pasta.")
 
-# Essa é a senha que VOCÊ passa para o programador do seu chefe
-MINHA_CHAVE_DE_API = "actuar_api_secreta_2026" 
+# Essa é a senha que VOCÊ passa para o programador do seu chefe (AGORA SEGURA E OCULTA)
+MINHA_CHAVE_DE_API = API_KEY 
 
 # Inicializando conexões com as chaves ocultas
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -117,10 +118,10 @@ DIRETRIZES OBRIGATÓRIAS:
 @app.post("/api/v1/resolver-problema")
 def resolver_problema(
     requisicao: PerguntaCliente, 
-    authorization: str = Header(None)
+    token_acesso: str = Header(None) # MUDANÇA: Renomeado para evitar conflito na tela de testes
 ):
     # Trava de Segurança
-    if authorization != f"Bearer {MINHA_CHAVE_DE_API}":
+    if token_acesso != f"Bearer {MINHA_CHAVE_DE_API}":
         raise HTTPException(status_code=401, detail="Chave de API inválida. Acesso Negado.")
 
     contexto = buscar_contexto_relevante(requisicao.duvida)
