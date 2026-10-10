@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-import re
 import json
-import pandas as pd
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -13,7 +11,7 @@ from dotenv import load_dotenv
 # ==========================================
 # 1. CARREGAR VARIÁVEIS OCULTAS
 # ==========================================
-# Isso puxa as informações do seu arquivo .env sem expor no código
+# Puxa as informações do seu arquivo .env sem expor no código
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -21,14 +19,14 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 API_KEY = os.getenv("API_KEY") # PUXA A SUA SENHA DO .ENV
 
-# Validação de segurança para garantir que o .env foi lido corretamente
+# Validação de segurança
 if not all([SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY, API_KEY]):
-    raise ValueError("Faltam variáveis de ambiente! Verifique se o seu arquivo .env está configurado corretamente na pasta.")
+    raise ValueError("Faltam variáveis de ambiente! Verifique se o seu arquivo .env está configurado corretamente.")
 
-# Essa é a senha que VOCÊ passa para o programador do seu chefe (AGORA SEGURA E OCULTA)
+# Senha segura oculta
 MINHA_CHAVE_DE_API = API_KEY 
 
-# Inicializando conexões com as chaves ocultas
+# Inicializando conexões
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -41,50 +39,36 @@ class PerguntaCliente(BaseModel):
     duvida: str
 
 # ==========================================
-# 3. LÓGICA DE BUSCA NO BANCO
+# 3. LÓGICA DE BUSCA NO BANCO (BUSCA SEMÂNTICA)
 # ==========================================
-def buscar_contexto_relevante(query: str):
+def buscar_contexto_relevante():
     try:
-        res = supabase.table("ocorrencias").select("problema, motivo, solucao").execute()
-        df_ocorrencias = pd.DataFrame(res.data)
-        
-        if df_ocorrencias.empty:
-            return []
-
-        query_lower = query.lower().strip()
-        stopwords = {"a", "o", "de", "do", "da", "em", "um", "uma", "para", "com", "que", "os", "as"}
-        palavras_query = [p for p in re.findall(r"\w+", query_lower) if p not in stopwords and len(p) > 2]
-
-        resultados_ocor = []
-        for _, row in df_ocorrencias.iterrows():
-            texto_base = f"{row.get('problema', '')} {row.get('motivo', '')}".lower()
-            score = sum(3 if p in str(row.get('problema', '')).lower() else 1 for p in palavras_query if p in texto_base)
-            
-            if score > 0:
-                resultados_ocor.append((score, row.to_dict()))
-        
-        resultados_ocor.sort(key=lambda x: x[0], reverse=True)
-        return [r[1] for r in resultados_ocor[:3]]
+        # Trazemos até 200 ocorrências do banco para a IA analisar o sentido
+        res = supabase.table("ocorrencias").select("problema, motivo, solucao").limit(200).execute()
+        return res.data if res.data else []
         
     except Exception as e:
-        print(f"Erro no banco: {e}")
+        print(f"Erro ao buscar no banco de dados: {e}")
         return []
 
 # ==========================================
-# 4. MOTOR DA IA (O "Cérebro" simplificador)
+# 4. MOTOR DA IA (Pesquisa por Significado)
 # ==========================================
 def gerar_resposta_cliente(duvida: str, contexto_ocor: list):
     prompt_sistema = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
 Sua missão é ajudar o cliente a resolver problemas com catracas e sistemas de acesso de forma muito simples e direta.
 
-DIRETRIZES OBRIGATÓRIAS:
-1. Baseie-se APENAS nas ocorrências fornecidas abaixo.
-2. NUNCA explique a causa raiz, evite jargões técnicos.
-3. Entregue APENAS a solução em um passo a passo numerado, curto e direto ao ponto.
-4. Se o problema não estiver no contexto, diga amigavelmente para abrir um chamado no suporte.
+DIRETRIZES DE PESQUISA POR SENTIDO:
+1. Abaixo está a nossa Base de Conhecimento completa.
+2. Analise a DÚVIDA DO CLIENTE e procure na base um problema que tenha o MESMO SIGNIFICADO ou CONTEXTO, mesmo que as palavras usadas sejam totalmente diferentes (ex: "apitar" = "bip" = "barulho sonoro" = "alarme").
+
+DIRETRIZES DE RESPOSTA:
+3. Se encontrar um problema com o mesmo sentido, entregue APENAS a solução em um passo a passo numerado, curto e direto ao ponto.
+4. NUNCA explique a causa raiz, evite jargões técnicos.
+5. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), diga amigavelmente para abrir um chamado no suporte. Não invente soluções.
 """
 
-    contexto_str = f"DÚVIDA DO CLIENTE: {duvida}\n\n=== BASE TÉCNICA ===\n"
+    contexto_str = f"DÚVIDA DO CLIENTE: {duvida}\n\n=== BASE DE CONHECIMENTO TÉCNICO ===\n"
     if contexto_ocor:
         for o in contexto_ocor:
             passos_limpos = ""
@@ -95,13 +79,14 @@ DIRETRIZES OBRIGATÓRIAS:
             except:
                 passos_limpos = o.get('solucao', '')
 
-            contexto_str += f"Problema: {o.get('problema')}\nSolução: {passos_limpos}\n\n"
+            contexto_str += f"- PROBLEMA REGISTRADO: {o.get('problema')}\n  MOTIVO: {o.get('motivo')}\n  SOLUÇÃO: {passos_limpos}\n\n"
     else:
-        contexto_str += "Nenhum problema similar encontrado. Pedir para acionar o suporte.\n"
+        contexto_str += "Base de dados vazia.\n"
 
     try:
+        # Usando o modelo 1.5-flash pela sua alta capacidade de memória e contexto
         response = gemini_client.models.generate_content(
-            model='gemini-3.6-flash',
+            model='gemini-1.5-flash',
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -120,14 +105,14 @@ def resolver_problema(
     requisicao: PerguntaCliente, 
     token_acesso: str = Header(None)
 ):
+    # Trava de Segurança
     if token_acesso != f"Bearer {MINHA_CHAVE_DE_API}":
         raise HTTPException(status_code=401, detail="Chave de API inválida. Acesso Negado.")
 
-    contexto = buscar_contexto_relevante(requisicao.duvida)
+    # Busca todos os problemas (sem filtrar palavras)
+    contexto = buscar_contexto_relevante()
     
-    # ADICIONE ESTA LINHA PARA VER O RESULTADO NO TERMINAL:
-    print(f"\n--- OS 3 PROBLEMAS ENCONTRADOS NO BANCO ---\n{contexto}\n------------------------------------------\n")
-    
+    # A IA interpreta o sentido da dúvida comparando com toda a base
     resposta_formatada = gerar_resposta_cliente(requisicao.duvida, contexto)
 
     return {
