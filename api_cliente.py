@@ -118,13 +118,16 @@ DIRETRIZES OBRIGATÓRIAS:
 @app.post("/api/v1/resolver-problema")
 def resolver_problema(
     requisicao: PerguntaCliente, 
-    token_acesso: str = Header(None) # MUDANÇA: Renomeado para evitar conflito na tela de testes
+    token_acesso: str = Header(None)
 ):
-    # Trava de Segurança
     if token_acesso != f"Bearer {MINHA_CHAVE_DE_API}":
         raise HTTPException(status_code=401, detail="Chave de API inválida. Acesso Negado.")
 
     contexto = buscar_contexto_relevante(requisicao.duvida)
+    
+    # ADICIONE ESTA LINHA PARA VER O RESULTADO NO TERMINAL:
+    print(f"\n--- OS 3 PROBLEMAS ENCONTRADOS NO BANCO ---\n{contexto}\n------------------------------------------\n")
+    
     resposta_formatada = gerar_resposta_cliente(requisicao.duvida, contexto)
 
     return {
