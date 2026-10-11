@@ -601,8 +601,8 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
 # ==========================================
 indice_chat_sup = abas_navegacao.index("💬 Chat de Suporte")
 with tabs[indice_chat_sup]:
-    st.subheader("💬 Atendimento Inteligente - Suporte Técnico")
-    st.caption("Converse com o assistente virtual para resolver dúvidas sobre catraca, rede, biometria e webcam de forma simples, amigável e passo a passo condicional.")
+    st.subheader("💬 Atendimento Inteligente - Suporte ao Cliente")
+    st.caption("Simulação do chat voltado para o cliente final, com corte para problemas mecânicos e passo a passo condicional.")
 
     if "historico_chat_cliente" not in st.session_state:
         st.session_state.historico_chat_cliente = []
@@ -615,7 +615,7 @@ with tabs[indice_chat_sup]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    duvida_cliente = st.chat_input("Descreva o problema com a catraca ou o sistema...")
+    duvida_cliente = st.chat_input("Digite o problema do cliente (ex: catraca apitando, biometria apagada, catraca travando...)...")
 
     if duvida_cliente:
         st.session_state.historico_chat_cliente.append({"role": "user", "content": duvida_cliente})
@@ -623,26 +623,29 @@ with tabs[indice_chat_sup]:
             st.markdown(duvida_cliente)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analisando o problema..."):
+            with st.spinner("A processar atendimento..."):
+                # Busca o contexto geral na base do Supabase
                 match_ocor, match_man = buscar_contexto_relevante(duvida_cliente, df_ocorrencias, df_manuais)
 
-                prompt_sistema_chat = """Você é o Assistente Virtual Técnico para o cliente final (donos de academias, escolas e gestores).
-Sua missão é ajudar o cliente a resolver problemas de forma muito atenciosa, didática e passo a passo condicional.
-
-DIRETRIZ DE CONDICIONALIDADE E LINGUAGEM PARA LEIGOS:
-1. Seja educado e amigável. Inicie com uma saudação acolhedora.
-2. NUNCA jogue um bloco seco de texto ou liste todos os passos como se fossem tarefas simultâneas. O cliente precisa testar uma coisa de cada vez.
-3. Use sempre uma estrutura condicional clara: apresente o primeiro teste e diga explicitamente: "Faça isso e teste. Se não funcionar (ou se continuar com o problema), siga para o próximo passo:".
-4. Explique os procedimentos de forma simples, imaginando que o cliente tem muita dificuldade com tecnologia.
+                # Prompt idêntico ao da API do cliente final
+                prompt_sistema_cliente = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
+Sua missão é ajudar o cliente a resolver problemas com catracas e sistemas de forma muito simples, amigável e direta.
 
 DIRETRIZ DE CORTE PARA PROBLEMAS MECÂNICOS / FÍSICOS / ELÉTRICOS:
-5. Se o problema envolver questões mecânicas ou elétricas graves (ex: catraca apitando, mole, dura, desligando e ligando sozinha, travamento físico no giro), informe com empatia que é uma ocorrência mecânica/elétrica que necessita de avaliação detalhada e oriente a contatar o suporte.
+1. Analise a DÚVIDA DO CLIENTE. Se o problema envolver questões físicas, mecânicas ou elétricas graves que exijam avaliação minuciosa, desmontagem ou intervenção de um técnico presencial (Exemplos: catraca apitando, catraca mole, catraca dura, catraca a desligar e ligar sozinha, travamento físico no giro), VOCÊ DEVE CORTAR OS PASSOS DE REPARO. 
+2. Para esses casos mecânicos/físicos, informe com empatia que se trata de uma ocorrência de cunho mecânico/elétrico e que é estritamente necessário o acionamento do suporte técnico especializado para uma avaliação detalhada. Não mande o cliente mexer em peças internas.
+
+DIRETRIZ DE CONDICIONALIDADE E LINGUAGEM PARA LEIGOS:
+3. Seja educado e amigável. Inicie com uma saudação acolhedora.
+4. NUNCA jogue um bloco seco de texto ou liste todos os passos como se fossem tarefas simultâneas. O cliente precisa testar uma coisa de cada vez.
+5. Use sempre uma estrutura condicional clara: apresente o primeiro teste e diga explicitamente: "Faça isso e teste. Se não funcionar (ou se continuar com o problema), siga para o próximo passo:".
+6. Explique os procedimentos de forma simples, imaginando que o cliente tem muita dificuldade com tecnologia.
 
 DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
-6. Para problemas de aplicativo, rede, webcam, biometria ou firewall, utilize a Base de Conhecimento fornecida e construa um roteiro de testes sequencial e condicional.
-7. NUNCA utilize jargões técnicos complexos.
-8. Se o problema DEFINITIVAMENTE não estiver na base, informe amigavelmente para abrir um chamado no suporte técnico.
-9. REGRA OBRIGATÓRIA DE ENCERRAMENTO: No final absoluto de QUALQUER resposta gerada, inclua obrigatoriamente a frase exata: "Caso isso não resolva, contate o suporte técnico."
+7. Para problemas de aplicativo, rede, webcam, biometria ou firewall, utilize a Base de Conhecimento abaixo e construa um roteiro de testes sequencial e condicional.
+8. NUNCA explique a causa raiz profunda e evite jargões técnicos complexos.
+9. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), informe amigavelmente para abrir um chamado no suporte. Não invente soluções.
+10. REGRA OBRIGATÓRIA DE ENCERRAMENTO: No final absoluto de QUALQUER resposta gerada, você deve incluir obrigatoriamente a frase exata: "Caso isso não resolva, contate o suporte técnico."
 """
 
                 contexto_str = f"DÚVIDA DO CLIENTE: {duvida_cliente}\n\n=== BASE DE CONHECIMENTO TÉCNICO ===\n"
@@ -655,20 +658,16 @@ DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
                                 passos_limpos += f"Passo {p.get('passo')} - {p.get('texto')}\n"
                         except:
                             passos_limpos = o.get('solucao', '')
-                        contexto_str += f"- PROBLEMA: {o.get('problema')}\n  SOLUÇÃO: {passos_limpos}\n\n"
-                if match_man:
-                    for m in match_man:
-                        contexto_str += f"- MANUAL/PRODUTO: {m.get('titulo')}\n  CONTEÚDO: {m.get('conteudo')}\n\n"
-                
-                if not match_ocor and not match_man:
-                    contexto_str += "Nenhum registro exato encontrado.\n"
+                        contexto_str += f"- PROBLEMA REGISTRADO: {o.get('problema')}\n  MOTIVO: {o.get('motivo')}\n  SOLUÇÃO: {passos_limpos}\n\n"
+                else:
+                    contexto_str += "Base de dados vazia.\n"
 
                 try:
                     response = gemini_client.models.generate_content(
                         model='gemini-3.6-flash',
                         contents=contexto_str,
                         config=types.GenerateContentConfig(
-                            system_instruction=prompt_sistema_chat,
+                            system_instruction=prompt_sistema_cliente,
                             temperature=0.2,
                         )
                     )
