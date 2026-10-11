@@ -379,7 +379,7 @@ def upload_multiplos_arquivos(files):
     return ",".join(urls) if urls else None
 
 # ==========================================
-# 4. MOTOR IA GEMINI + RAG HÍBRIDO E CONVERSA CONTINUADA
+# 4. MOTOR IA GEMINI + RAG HÍBRIDO E PRIORIZAÇÃO DE VÍDEOS
 # ==========================================
 def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
     if not query:
@@ -397,6 +397,12 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
         for _, row in df_ocorrencias.iterrows():
             texto = f"{row.get('problema', '')} {row.get('motivo', '')} {row.get('equipamento', '')} {row.get('sistema', '')} {row.get('solucao', '')}".lower()
             score = sum(3 if p in str(row.get('problema', '')).lower() else 1 for p in palavras_query if p in texto)
+            
+            # BÔNUS DE PESO PARA VÍDEOS: Dá prioridade para registros que possuem link de vídeo explicativo
+            solucao_str = str(row.get('solucao', '')).lower()
+            if "youtube.com" in solucao_str or "youtu.be" in solucao_str or "http" in solucao_str:
+                score += 5
+
             if score > 0:
                 resultados_ocor.append((score, row.to_dict()))
         resultados_ocor.sort(key=lambda x: x[0], reverse=True)
@@ -406,6 +412,11 @@ def buscar_contexto_relevante(query, df_ocorrencias, df_manuais):
         for _, row in df_manuais.iterrows():
             texto = f"{row.get('titulo', '')} {row.get('sistema_produto', '')} {row.get('conteudo', '')}".lower()
             score = sum(4 if p in str(row.get('titulo', '')).lower() else 1 for p in palavras_query if p in texto)
+            
+            conteudo_str = str(row.get('conteudo', '')).lower()
+            if "youtube.com" in conteudo_str or "youtu.be" in conteudo_str or "http" in conteudo_str:
+                score += 5
+
             if score > 0:
                 resultados_man.append((score, row.to_dict()))
         resultados_man.sort(key=lambda x: x[0], reverse=True)
@@ -597,12 +608,12 @@ def renderizar_solucao_estruturada(solucao_data, anexo_global=None):
         st.success(f"**Solução Recomendada:**\n{solucao_data}")
 
 # ==========================================
-# ABA: CHAT DE SUPORTE (ATENDIMENTO AO CLIENTE)
+# ABA: CHAT DE SUPORTE (ATENDIMENTO AO CLIENTE COM VÍDEOS)
 # ==========================================
 indice_chat_sup = abas_navegacao.index("💬 Chat de Suporte")
 with tabs[indice_chat_sup]:
     st.subheader("💬 Atendimento Inteligente - Suporte ao Cliente")
-    st.caption("Simulação do chat voltado para o cliente final, com corte para problemas mecânicos e passo a passo condicional.")
+    st.caption("Simulação do chat voltado para o cliente final, com prioridade para tutoriais em vídeo, corte físico e passo a passo condicional.")
 
     if "historico_chat_cliente" not in st.session_state:
         st.session_state.historico_chat_cliente = []
@@ -614,8 +625,14 @@ with tabs[indice_chat_sup]:
     for msg in st.session_state.historico_chat_cliente:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            # Renderiza player de vídeo se houver link do YouTube armazenado no histórico
+            if msg["role"] == "assistant":
+                padrao_youtube = r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+))'
+                matches = re.findall(padrao_youtube, msg["content"])
+                for url_completa, _ in matches:
+                    st.video(url_completa)
 
-    duvida_cliente = st.chat_input("Digite o problema do cliente (ex: catraca apitando, biometria apagada, catraca travando...)...")
+    duvida_cliente = st.chat_input("Digite o problema do cliente (ex: catraca apitando, biometria apagada, firewall...)...")
 
     if duvida_cliente:
         st.session_state.historico_chat_cliente.append({"role": "user", "content": duvida_cliente})
@@ -624,28 +641,30 @@ with tabs[indice_chat_sup]:
 
         with st.chat_message("assistant"):
             with st.spinner("A processar atendimento..."):
-                # Busca o contexto geral na base do Supabase
                 match_ocor, match_man = buscar_contexto_relevante(duvida_cliente, df_ocorrencias, df_manuais)
 
-                # Prompt idêntico ao da API do cliente final
                 prompt_sistema_cliente = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
 Sua missão é ajudar o cliente a resolver problemas com catracas e sistemas de forma muito simples, amigável e direta.
 
+DIRETRIZ DE PRIORIDADE PARA VÍDEOS EXPLICATIVOS:
+1. Sempre que a base de conhecimento trouxer um link de vídeo (como YouTube) relacionado ao procedimento (por exemplo, desativar o firewall ou configurações complexas), VOCÊ DEVE priorizar e recomendar o vídeo para o cliente. É sempre mais fácil e visual para o usuário assistir ao vídeo do que ler passos longos em texto.
+2. Apresente o link do vídeo de forma clara e amigável.
+
 DIRETRIZ DE CORTE PARA PROBLEMAS MECÂNICOS / FÍSICOS / ELÉTRICOS:
-1. Analise a DÚVIDA DO CLIENTE. Se o problema envolver questões físicas, mecânicas ou elétricas graves que exijam avaliação minuciosa, desmontagem ou intervenção de um técnico presencial (Exemplos: catraca apitando, catraca mole, catraca dura, catraca a desligar e ligar sozinha, travamento físico no giro), VOCÊ DEVE CORTAR OS PASSOS DE REPARO. 
-2. Para esses casos mecânicos/físicos, informe com empatia que se trata de uma ocorrência de cunho mecânico/elétrico e que é estritamente necessário o acionamento do suporte técnico especializado para uma avaliação detalhada. Não mande o cliente mexer em peças internas.
+3. Analise a DÚVIDA DO CLIENTE. Se o problema envolver questões físicas, mecânicas ou elétricas graves que exijam avaliação minuciosa, desmontagem ou intervenção de um técnico presencial (Exemplos: catraca apitando, catraca mole, catraca dura, catraca a desligar e ligar sozinha, travamento físico no giro), VOCÊ DEVE CORTAR OS PASSOS DE REPARO. 
+4. Para esses casos mecânicos/físicos, informe com empatia que se trata de uma ocorrência de cunho mecânico/elétrico e que é estritamente necessário o acionamento do suporte técnico especializado para uma avaliação detalhada. Não mande o cliente mexer em peças internas.
 
 DIRETRIZ DE CONDICIONALIDADE E LINGUAGEM PARA LEIGOS:
-3. Seja educado e amigável. Inicie com uma saudação acolhedora.
-4. NUNCA jogue um bloco seco de texto ou liste todos os passos como se fossem tarefas simultâneas. O cliente precisa testar uma coisa de cada vez.
-5. Use sempre uma estrutura condicional clara: apresente o primeiro teste e diga explicitamente: "Faça isso e teste. Se não funcionar (ou se continuar com o problema), siga para o próximo passo:".
-6. Explique os procedimentos de forma simples, imaginando que o cliente tem muita dificuldade com tecnologia.
+5. Seja educado e amigável. Inicie com uma saudação acolhedora.
+6. NUNCA jogue um bloco seco de texto ou liste todos os passos como se fossem tarefas simultâneas. O cliente precisa testar uma coisa de cada vez.
+7. Use sempre uma estrutura condicional clara: apresente o primeiro teste e diga explicitamente: "Faça isso e teste. Se não funcionar (ou se continuar com o problema), siga para o próximo passo:".
+8. Explique os procedimentos de forma simples, imaginando que o cliente tem muita dificuldade com tecnologia.
 
 DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
-7. Para problemas de aplicativo, rede, webcam, biometria ou firewall, utilize a Base de Conhecimento abaixo e construa um roteiro de testes sequencial e condicional.
-8. NUNCA explique a causa raiz profunda e evite jargões técnicos complexos.
-9. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), informe amigavelmente para abrir um chamado no suporte. Não invente soluções.
-10. REGRA OBRIGATÓRIA DE ENCERRAMENTO: No final absoluto de QUALQUER resposta gerada, você deve incluir obrigatoriamente a frase exata: "Caso isso não resolva, contate o suporte técnico."
+9. Para problemas de aplicativo, rede, webcam, biometria ou firewall, utilize a Base de Conhecimento abaixo e construa um roteiro de testes sequencial e condicional.
+10. NUNCA explique a causa raiz profunda e evite jargões técnicos complexos.
+11. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), informe amigavelmente para abrir um chamado no suporte. Não invente soluções.
+12. REGRA OBRIGATÓRIA DE ENCERRAMENTO: No final absoluto de QUALQUER resposta gerada, você deve incluir obrigatoriamente a frase exata: "Caso isso não resolva, contate o suporte técnico."
 """
 
                 contexto_str = f"DÚVIDA DO CLIENTE: {duvida_cliente}\n\n=== BASE DE CONHECIMENTO TÉCNICO ===\n"
@@ -658,7 +677,7 @@ DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
                                 passos_limpos += f"Passo {p.get('passo')} - {p.get('texto')}\n"
                         except:
                             passos_limpos = o.get('solucao', '')
-                        contexto_str += f"- PROBLEMA REGISTRADO: {o.get('problema')}\n  MOTIVO: {o.get('motivo')}\n  SOLUÇÃO: {passos_limpos}\n\n"
+                        contexto_str += f"- PROBLEMA REGISTRADO: {o.get('problema')}\n  MOTIVO: {o.get('motivo')}\n  SOLUÇÃO/VÍDEO: {passos_limpos}\n\n"
                 else:
                     contexto_str += "Base de dados vazia.\n"
 
@@ -676,6 +695,13 @@ DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
                     resposta_final = "Olá! Tivemos uma oscilação temporária. Caso isso não resolva, contate o suporte técnico."
 
                 st.markdown(resposta_final)
+
+                # Renderiza o vídeo do YouTube automaticamente logo abaixo da resposta se houver link
+                padrao_youtube = r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+))'
+                matches = re.findall(padrao_youtube, resposta_final)
+                for url_completa, _ in matches:
+                    st.video(url_completa)
+
                 st.session_state.historico_chat_cliente.append({"role": "assistant", "content": resposta_final})
 
 # ==========================================
