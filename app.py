@@ -700,7 +700,7 @@ DIRETRIZES DE RESPOSTA (SISTEMAS E PERIFÉRICOS):
                     )
                     resposta_final = response.text
                 except Exception as e:
-                    resposta_final = "Olá! Tivemos uma oscilação temporária. Caso isso não resolva, contate o suporte técnico."
+                    resposta_final = "Olá! Tivemos uma oscilação temporária. Contate o suporte técnico."
 
                 st.markdown(resposta_final)
 
