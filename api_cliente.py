@@ -48,7 +48,7 @@ def buscar_contexto_relevante():
         return []
 
 # ==========================================
-# 4. MOTOR DA IA (Com o modelo anterior)
+# 4. MOTOR DA IA 
 # ==========================================
 def gerar_resposta_cliente(duvida: str, contexto_ocor: list):
     prompt_sistema = """Você é o Assistente Virtual Técnico para o cliente final (Dono de academia, escola).
@@ -61,7 +61,8 @@ DIRETRIZES DE PESQUISA POR SENTIDO:
 DIRETRIZES DE RESPOSTA:
 3. Se encontrar um problema com o mesmo sentido, entregue APENAS a solução em um passo a passo numerado, curto e direto ao ponto.
 4. NUNCA explique a causa raiz, evite jargões técnicos.
-5. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), diga amigavelmente para abrir um chamado no suporte. Não invente soluções.
+5. Se o problema DEFINITIVAMENTE não estiver na base (nem por sentido), informe amigavelmente para abrir um chamado no suporte. Não invente soluções.
+6. REGRA OBRIGATÓRIA DE ENCERRAMENTO: No final absoluto de QUALQUER resposta gerada, você deve incluir obrigatoriamente a frase: "Caso isso não resolva, contate o suporte técnico."
 """
 
     contexto_str = f"DÚVIDA DO CLIENTE: {duvida}\n\n=== BASE DE CONHECIMENTO TÉCNICO ===\n"
@@ -81,7 +82,7 @@ DIRETRIZES DE RESPOSTA:
 
     try:
         response = gemini_client.models.generate_content(
-            model='gemini-3.6-flash', # Retornando para o modelo anterior
+            model='gemini-3.6-flash',
             contents=contexto_str,
             config=types.GenerateContentConfig(
                 system_instruction=prompt_sistema,
@@ -91,7 +92,7 @@ DIRETRIZES DE RESPOSTA:
         return response.text
     except Exception as e:
         print(f"\n[ERRO GEMINI]: {str(e)}\n")
-        return "Essa dúvida é somente com a equipe técnica. Por favor, contate o suporte."
+        return "Essa dúvida é somente com a equipe técnica. Caso isso não resolva, contate o suporte técnico."
 
 # ==========================================
 # 5. ROTA PRINCIPAL DA API
